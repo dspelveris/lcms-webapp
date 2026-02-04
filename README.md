@@ -50,22 +50,6 @@ streamlit run app/main.py
 - Default m/z values: 680.1, 382.98, 243.99, 321.15
 - Export DPI: 300
 
-## Project Structure
-
-```
-lcms-webapp/
-├── docker-compose.yml      # Docker compose configuration
-├── Dockerfile              # Docker image definition
-├── requirements.txt        # Python dependencies
-├── app/
-│   ├── main.py            # Streamlit entry point
-│   ├── data_reader.py     # Rainbow .D folder reader
-│   ├── analysis.py        # EIC extraction, smoothing
-│   ├── plotting.py        # Plot generation functions
-│   └── config.py          # Default values, paths
-└── README.md
-```
-
 ## Usage
 
 1. **Select Files**: Use the sidebar file browser to navigate to your LC-MS data
