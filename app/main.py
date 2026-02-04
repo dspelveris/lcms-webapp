@@ -85,10 +85,28 @@ def handle_file_upload(uploaded_files):
                 with open(zip_path, 'wb') as f:
                     f.write(uploaded_file.getbuffer())
 
-                # Extract contents
+                # Extract contents (skip macOS metadata)
                 extract_dir = os.path.join(temp_dir, uploaded_file.name.replace('.zip', ''))
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(extract_dir)
+                    for member in zip_ref.namelist():
+                        # Skip macOS metadata files
+                        if member.startswith('__MACOSX') or '/.DS_Store' in member or member.startswith('._'):
+                            continue
+                        zip_ref.extract(member, extract_dir)
+
+                # Clean up any remaining macOS metadata
+                for root, dirs, files in os.walk(extract_dir):
+                    # Remove __MACOSX folders
+                    if '__MACOSX' in dirs:
+                        shutil.rmtree(os.path.join(root, '__MACOSX'), ignore_errors=True)
+                        dirs.remove('__MACOSX')
+                    # Remove ._ files and .DS_Store
+                    for f in files:
+                        if f.startswith('._') or f == '.DS_Store':
+                            try:
+                                os.remove(os.path.join(root, f))
+                            except:
+                                pass
 
                 # Find .D folders in extracted contents
                 for root, dirs, files in os.walk(extract_dir):
