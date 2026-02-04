@@ -148,6 +148,66 @@ class SampleData:
 
         return times, data, labels
 
+    def _fallback_read(self):
+        """Fallback: read individual files when rb.read() fails."""
+        from rainbow.agilent import chemstation
+        import os
+
+        class FallbackDataDir:
+            def __init__(self):
+                self.by_detector = {}
+                self.datafiles = []
+
+        result = FallbackDataDir()
+        folder = self.folder_path
+
+        try:
+            files = os.listdir(folder)
+
+            # Try to parse each file individually
+            for f in files:
+                # Skip macOS metadata
+                if f.startswith('._') or f == '.DS_Store':
+                    continue
+
+                filepath = os.path.join(folder, f)
+                if not os.path.isfile(filepath):
+                    continue
+
+                try:
+                    # Try UV/chromatogram files (.ch)
+                    if f.endswith('.ch'):
+                        df = chemstation.parse_file(filepath, prec=0)
+                        if df is not None:
+                            det_name = f.replace('.ch', '').upper()
+                            result.by_detector[det_name] = df
+                            result.datafiles.append(df)
+                            self._debug_info[f'fallback_parsed_{f}'] = 'success'
+
+                    # Try MS files (.MS)
+                    elif f.endswith('.MS'):
+                        try:
+                            df = chemstation.parse_file(filepath, prec=0)
+                            if df is not None:
+                                result.by_detector['MS'] = df
+                                result.datafiles.append(df)
+                                self._debug_info[f'fallback_parsed_{f}'] = 'success'
+                        except Exception as ms_err:
+                            self._debug_info[f'fallback_ms_error_{f}'] = str(ms_err)
+
+                except Exception as e:
+                    self._debug_info[f'fallback_error_{f}'] = str(e)
+
+        except Exception as e:
+            self._debug_info['fallback_list_error'] = str(e)
+            return None
+
+        if result.datafiles:
+            self._debug_info['fallback_used'] = True
+            return result
+
+        return None
+
     def load(self) -> bool:
         """Load data from .D folder using rainbow-api."""
         if not check_rainbow_available():
@@ -155,8 +215,18 @@ class SampleData:
             return False
 
         try:
-            # Read the data directory
-            data = rb.read(self.folder_path)
+            # First try normal read
+            data = None
+            try:
+                data = rb.read(self.folder_path)
+            except Exception as e:
+                self._debug_info['rb_read_error'] = str(e)
+                # Try fallback: read individual files
+                data = self._fallback_read()
+
+            if data is None:
+                self._error = "Could not read data folder"
+                return False
 
             # Store debug info
             self._debug_info['detectors'] = list(data.by_detector.keys()) if hasattr(data, 'by_detector') else []
@@ -178,7 +248,8 @@ class SampleData:
                 uv_times = None
 
                 for det_name in data.by_detector.keys():
-                    if any(uv in det_name.upper() for uv in ['UV', 'DAD', 'PDA']):
+                    # Include MWD (Multi-Wavelength Detector) in UV detection
+                    if any(uv in det_name.upper() for uv in ['UV', 'DAD', 'PDA', 'MWD']):
                         det_data = data.by_detector[det_name]
                         times, uv_data, wavelengths = self._extract_detector_data(det_data)
 
@@ -283,7 +354,7 @@ class SampleData:
                 for df in data.datafiles:
                     det_type = getattr(df, 'detector', None) or getattr(df, 'detector_type', '')
 
-                    if 'UV' in str(det_type).upper() or 'DAD' in str(det_type).upper():
+                    if any(uv in str(det_type).upper() for uv in ['UV', 'DAD', 'PDA', 'MWD']):
                         if self.uv_data is None:
                             times, uv_data, wavelengths = self._extract_detector_data(df)
                             if uv_data is not None:
