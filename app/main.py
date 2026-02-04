@@ -360,14 +360,14 @@ def sidebar_settings():
             "Figure width (inches)",
             min_value=6,
             max_value=16,
-            value=10,
+            value=8,
             step=1
         )
         fig_height_per_panel = st.slider(
             "Height per panel (inches)",
-            min_value=2,
+            min_value=1,
             max_value=5,
-            value=3,
+            value=2,
             step=1
         )
 
@@ -419,14 +419,37 @@ def sidebar_settings():
         help="Select MS ionization mode"
     )
 
-    # UV wavelength
-    uv_wl = st.sidebar.number_input(
-        "UV Wavelength (nm)",
-        min_value=190.0,
-        max_value=800.0,
-        value=float(config.UV_WAVELENGTH),
-        step=1.0
-    )
+    # UV wavelength - show checkboxes based on available wavelengths
+    st.sidebar.markdown("**UV Wavelengths**")
+
+    # Get available wavelengths from loaded samples
+    available_wavelengths = set()
+    for sample in st.session_state.loaded_samples.values():
+        if hasattr(sample, 'uv_wavelengths') and sample.uv_wavelengths is not None:
+            for wl in sample.uv_wavelengths:
+                try:
+                    available_wavelengths.add(float(wl))
+                except (ValueError, TypeError):
+                    pass
+
+    # Initialize selected wavelengths in session state
+    if 'selected_wavelengths' not in st.session_state:
+        st.session_state.selected_wavelengths = []
+
+    selected_wavelengths = []
+    if available_wavelengths:
+        sorted_wls = sorted(available_wavelengths)
+        for wl in sorted_wls:
+            # Default: select 194nm if available, otherwise first wavelength
+            default_selected = (wl == 194.0) or (wl == sorted_wls[0] and 194.0 not in available_wavelengths)
+            if st.sidebar.checkbox(f"{wl:.0f} nm", value=default_selected, key=f"uv_wl_{wl}"):
+                selected_wavelengths.append(wl)
+    else:
+        st.sidebar.caption("Load a sample to see available wavelengths")
+        selected_wavelengths = [config.UV_WAVELENGTH]  # fallback
+
+    # Use first selected or default
+    uv_wl = selected_wavelengths[0] if selected_wavelengths else config.UV_WAVELENGTH
 
     # m/z window
     mz_window = st.sidebar.slider(
@@ -487,6 +510,7 @@ def sidebar_settings():
 
     return {
         'uv_wavelength': uv_wl,
+        'uv_wavelengths': selected_wavelengths,  # all selected wavelengths
         'uv_smoothing': uv_smooth,
         'eic_smoothing': eic_smooth,
         'mz_window': mz_window,
