@@ -89,8 +89,12 @@ def handle_file_upload(uploaded_files):
                 extract_dir = os.path.join(temp_dir, uploaded_file.name.replace('.zip', ''))
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     for member in zip_ref.namelist():
-                        # Skip macOS metadata files
-                        if member.startswith('__MACOSX') or '/.DS_Store' in member or member.startswith('._'):
+                        # Skip macOS metadata files (anywhere in path)
+                        basename = os.path.basename(member.rstrip('/'))
+                        if (member.startswith('__MACOSX') or
+                            '__MACOSX/' in member or
+                            basename.startswith('._') or
+                            basename == '.DS_Store'):
                             continue
                         zip_ref.extract(member, extract_dir)
 
@@ -154,6 +158,18 @@ def sidebar_file_upload():
         for path in new_paths:
             if path not in st.session_state.selected_files:
                 st.session_state.selected_files.append(path)
+
+        # Show what files were found in the .D folders (for debugging)
+        if new_paths:
+            with st.sidebar.expander("Extracted files (debug)"):
+                for d_path in new_paths:
+                    st.caption(f"**{Path(d_path).name}**")
+                    try:
+                        files = list(Path(d_path).iterdir())
+                        file_names = [f.name for f in files if f.is_file()]
+                        st.text(", ".join(file_names[:15]))
+                    except Exception as e:
+                        st.text(f"Error: {e}")
 
     # Show uploaded/selected files
     if st.session_state.selected_files:
