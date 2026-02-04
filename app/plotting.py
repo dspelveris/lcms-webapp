@@ -7,6 +7,17 @@ import matplotlib.pyplot as plt
 import matplotlib.figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
+# Set smaller default font sizes
+plt.rcParams.update({
+    'font.size': 8,
+    'axes.titlesize': 9,
+    'axes.labelsize': 8,
+    'xtick.labelsize': 7,
+    'ytick.labelsize': 7,
+    'legend.fontsize': 7,
+    'figure.titlesize': 10
+})
+
 import config
 from data_reader import SampleData
 from analysis import smooth_data, extract_eic
@@ -186,7 +197,7 @@ def create_time_progression_figure(
     n_rows = 2 + n_eics  # UV + TIC + EICs
 
     fig, axes = plt.subplots(n_rows, 1, figsize=(fig_width, fig_height_per_panel * n_rows))
-    fig.suptitle(title, fontsize=14, fontweight='bold', y=1.005)
+    fig.suptitle(title, fontsize=10, fontweight='bold', y=1.005)
 
     # Define colors based on number of samples
     color_initial = custom_colors.get('initial', config.TIME_COLORS["initial"])
@@ -321,7 +332,7 @@ def create_single_sample_figure(
     if n_rows == 1:
         axes = [axes]
 
-    fig.suptitle(title, fontsize=14, fontweight='bold', y=1.005)
+    fig.suptitle(title, fontsize=10, fontweight='bold', y=1.005)
 
     # Panel 1: UV
     uv_data = sample.get_uv_at_wavelength(uv_wavelength)
@@ -395,7 +406,7 @@ def create_eic_comparison_figure(
     """
     if overlay:
         fig, ax = plt.subplots(figsize=(10, 5))
-        fig.suptitle(f"EIC Comparison: {sample.name}", fontsize=14, fontweight='bold')
+        fig.suptitle(f"EIC Comparison: {sample.name}", fontsize=10, fontweight='bold')
 
         eic_traces = []
         for mz in mz_values:
@@ -411,7 +422,7 @@ def create_eic_comparison_figure(
         if n_panels == 1:
             axes = [axes]
 
-        fig.suptitle(f"EIC Comparison: {sample.name}", fontsize=14, fontweight='bold')
+        fig.suptitle(f"EIC Comparison: {sample.name}", fontsize=10, fontweight='bold')
 
         for i, mz in enumerate(mz_values):
             eic = extract_eic(sample, mz, mz_window)
@@ -641,6 +652,6 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
                       ha='center', va='center', transform=ax_deconv.transAxes)
         ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
 
-    plt.suptitle(f"Protein Deconvolution: {sample.name}", fontsize=14, fontweight='bold', y=1.02)
+    plt.suptitle(f"Protein Deconvolution: {sample.name}", fontsize=10, fontweight='bold', y=1.02)
 
     return fig

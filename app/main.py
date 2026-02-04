@@ -358,9 +358,9 @@ def sidebar_settings():
         # Figure dimensions
         fig_width = st.slider(
             "Figure width (inches)",
-            min_value=6,
+            min_value=4,
             max_value=16,
-            value=8,
+            value=6,
             step=1
         )
         fig_height_per_panel = st.slider(
@@ -595,7 +595,7 @@ def single_sample_analysis(sample, settings):
     )
 
     # Display
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -710,7 +710,7 @@ def time_progression_analysis(samples: list, settings):
     )
 
     # Display
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -771,7 +771,7 @@ def eic_batch_analysis(sample, settings):
         overlay=overlay
     )
 
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
 
     # Peak areas table
     st.subheader("Peak Areas")
@@ -929,7 +929,7 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.legend()
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig_tic)
+        st.pyplot(fig_tic, use_container_width=True)
         plt.close(fig_tic)
 
     # Always show mass spectrum for selected region
@@ -976,7 +976,7 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(mz_min_display, mz_max_display)
-        st.pyplot(fig_ms)
+        st.pyplot(fig_ms, use_container_width=True)
         plt.close(fig_ms)
 
         # Store spectrum in session state for deconvolution
@@ -1063,7 +1063,7 @@ def deconvolution_analysis(sample, settings):
         }
 
         fig = create_deconvolution_figure(sample, time_range[0], time_range[1], results, style)
-        st.pyplot(fig)
+        st.pyplot(fig, use_container_width=True)
 
         # Show theoretical m/z for selected mass
         st.subheader("Theoretical m/z Values")
