@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
 import zipfile
 import tempfile
@@ -596,7 +597,7 @@ def single_sample_analysis(sample, settings):
         if sample.ms_times is not None:
             st.metric("MS Scans", len(sample.ms_times))
 
-    # Generate figure
+    # Generate figures in two columns
     st.divider()
     mz_targets = st.session_state.mz_targets
     style = {
@@ -608,6 +609,60 @@ def single_sample_analysis(sample, settings):
         'colors': settings['colors'],
         'labels': settings['labels']
     }
+
+    # Two column layout for plots
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        # UV Chromatogram
+        if sample.uv_data is not None:
+            fig_uv, ax_uv = plt.subplots(figsize=(5, 2.5))
+            uv_data = sample.get_uv_at_wavelength(settings['uv_wavelength'])
+            if uv_data is not None:
+                plot_data = smooth_data(uv_data, settings['uv_smoothing'])
+                ax_uv.plot(sample.uv_times, plot_data, linewidth=settings['line_width'])
+                ax_uv.set_xlabel("Time (min)", fontsize=8)
+                ax_uv.set_ylabel(f"UV {settings['uv_wavelength']:.0f}nm (mAU)", fontsize=8)
+                ax_uv.set_title(f"UV Chromatogram ({settings['uv_wavelength']:.0f} nm)", fontsize=9)
+                ax_uv.tick_params(labelsize=7)
+            else:
+                ax_uv.text(0.5, 0.5, "No UV data at this wavelength", ha='center', va='center', transform=ax_uv.transAxes)
+            fig_uv.tight_layout()
+            st.pyplot(fig_uv, use_container_width=True)
+            plt.close(fig_uv)
+
+        # TIC
+        if sample.tic is not None and sample.ms_times is not None:
+            fig_tic, ax_tic = plt.subplots(figsize=(5, 2.5))
+            ax_tic.plot(sample.ms_times, sample.tic, linewidth=settings['line_width'])
+            ax_tic.set_xlabel("Time (min)", fontsize=8)
+            ax_tic.set_ylabel("TIC Intensity", fontsize=8)
+            ax_tic.set_title("Total Ion Chromatogram (TIC)", fontsize=9)
+            ax_tic.tick_params(labelsize=7)
+            fig_tic.tight_layout()
+            st.pyplot(fig_tic, use_container_width=True)
+            plt.close(fig_tic)
+
+    with right_col:
+        # EICs
+        if mz_targets and sample.ms_scans is not None:
+            for mz in mz_targets:
+                fig_eic, ax_eic = plt.subplots(figsize=(5, 2.5))
+                eic = extract_eic(sample, mz, settings['mz_window'])
+                if eic is not None:
+                    plot_data = smooth_data(eic, settings['eic_smoothing'])
+                    ax_eic.plot(sample.ms_times, plot_data, linewidth=settings['line_width'])
+                    ax_eic.set_xlabel("Time (min)", fontsize=8)
+                    ax_eic.set_ylabel("EIC Intensity", fontsize=8)
+                    ax_eic.set_title(f"EIC m/z {mz:.2f} (±{settings['mz_window']})", fontsize=9)
+                    ax_eic.tick_params(labelsize=7)
+                else:
+                    ax_eic.text(0.5, 0.5, f"No data for m/z {mz}", ha='center', va='center', transform=ax_eic.transAxes)
+                fig_eic.tight_layout()
+                st.pyplot(fig_eic, use_container_width=True)
+                plt.close(fig_eic)
+
+    # Combined figure for export
     fig = create_single_sample_figure(
         sample,
         uv_wavelength=settings['uv_wavelength'],
@@ -618,15 +673,13 @@ def single_sample_analysis(sample, settings):
         eic_smoothing=settings['eic_smoothing']
     )
 
-    # Display
-    st.pyplot(fig, use_container_width=True)
-
     # Export buttons
+    st.divider()
     col1, col2, col3 = st.columns(3)
     with col1:
         png_data = export_figure(fig, dpi=settings['export_dpi'])
         st.download_button(
-            label="Download PNG",
+            label="Download PNG (combined)",
             data=png_data,
             file_name=f"{sample.name}_analysis.png",
             mime="image/png"
@@ -647,6 +700,7 @@ def single_sample_analysis(sample, settings):
             file_name=f"{sample.name}_analysis.pdf",
             mime="application/pdf"
         )
+    plt.close(fig)
 
     # Show debug info at bottom
     with st.expander("Data Debug Info"):
