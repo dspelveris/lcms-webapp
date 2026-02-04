@@ -1167,6 +1167,10 @@ def main():
     else:
         selected_files = sidebar_file_browser()
 
+    # Load samples BEFORE settings so wavelengths can be detected
+    if selected_files:
+        load_samples(selected_files)
+
     settings = sidebar_settings()
 
     # Main content
