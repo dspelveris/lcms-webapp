@@ -112,16 +112,23 @@ def handle_file_upload(uploaded_files):
                             except:
                                 pass
 
-                # Find .D folders in extracted contents
-                for root, dirs, files in os.walk(extract_dir):
-                    for d in dirs:
-                        if d.endswith('.D') or d.endswith('.d'):
-                            d_path = os.path.join(root, d)
-                            extracted_paths.append(d_path)
+                # Find .D folders in extracted contents (use set to avoid duplicates)
+                found_d_folders = set()
 
                 # If the extracted folder itself is a .D folder
                 if extract_dir.endswith('.D') or extract_dir.endswith('.d'):
-                    extracted_paths.append(extract_dir)
+                    found_d_folders.add(os.path.abspath(extract_dir))
+                else:
+                    # Walk through looking for .D folders
+                    for root, dirs, files in os.walk(extract_dir):
+                        for d in dirs:
+                            if d.endswith('.D') or d.endswith('.d'):
+                                d_path = os.path.abspath(os.path.join(root, d))
+                                found_d_folders.add(d_path)
+                        # Don't recurse into .D folders
+                        dirs[:] = [d for d in dirs if not (d.endswith('.D') or d.endswith('.d'))]
+
+                extracted_paths.extend(found_d_folders)
 
                 # Clean up zip file
                 os.remove(zip_path)
