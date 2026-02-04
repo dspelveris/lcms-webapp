@@ -1,0 +1,1164 @@
+"""LC-MS Analysis Web Application - Streamlit Entry Point."""
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import zipfile
+import tempfile
+import shutil
+import os
+
+import config
+from data_reader import list_d_folders_cached, read_sample_cached, check_rainbow_available
+from analysis import (
+    extract_eic, smooth_data, calculate_peak_area, find_peaks, find_spectrum_peaks,
+    sum_spectra_in_range, deconvolute_protein, get_theoretical_mz
+)
+from plotting import (
+    create_single_sample_figure,
+    create_time_progression_figure,
+    create_eic_comparison_figure,
+    create_deconvolution_figure,
+    create_mass_spectrum_figure,
+    export_figure,
+    export_figure_svg,
+    export_figure_pdf
+)
+
+# Page configuration
+st.set_page_config(
+    page_title="LC-MS Analysis",
+    page_icon=":material/science:",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .stSelectbox label { font-weight: bold; }
+    .main .block-container { padding-top: 2rem; }
+    div[data-testid="stMetricValue"] { font-size: 1.2rem; }
+    /* Reduce spacing in sidebar */
+    section[data-testid="stSidebar"] .stCheckbox { margin-bottom: -10px; }
+    section[data-testid="stSidebar"] .stButton { margin-bottom: -5px; }
+    section[data-testid="stSidebar"] button { padding: 0.25rem 0.5rem; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def init_session_state():
+    """Initialize session state variables."""
+    if 'selected_files' not in st.session_state:
+        st.session_state.selected_files = []
+    if 'loaded_samples' not in st.session_state:
+        st.session_state.loaded_samples = {}
+    if 'mz_targets' not in st.session_state:
+        st.session_state.mz_targets = config.DEFAULT_MZ_VALUES.copy()
+    if 'current_path' not in st.session_state:
+        st.session_state.current_path = config.BASE_PATH
+    if 'uploaded_files_dir' not in st.session_state:
+        st.session_state.uploaded_files_dir = None
+    if 'data_source' not in st.session_state:
+        st.session_state.data_source = 'upload'  # 'upload' or 'browse'
+
+
+def handle_file_upload(uploaded_files):
+    """Handle uploaded ZIP files containing .D folders."""
+    if not uploaded_files:
+        return []
+
+    extracted_paths = []
+
+    # Create temp directory for this session if not exists
+    if st.session_state.uploaded_files_dir is None or not os.path.exists(st.session_state.uploaded_files_dir):
+        st.session_state.uploaded_files_dir = tempfile.mkdtemp(prefix="lcms_")
+
+    temp_dir = st.session_state.uploaded_files_dir
+
+    for uploaded_file in uploaded_files:
+        try:
+            if uploaded_file.name.endswith('.zip'):
+                # Extract ZIP file
+                zip_path = os.path.join(temp_dir, uploaded_file.name)
+                with open(zip_path, 'wb') as f:
+                    f.write(uploaded_file.getbuffer())
+
+                # Extract contents
+                extract_dir = os.path.join(temp_dir, uploaded_file.name.replace('.zip', ''))
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+
+                # Find .D folders in extracted contents
+                for root, dirs, files in os.walk(extract_dir):
+                    for d in dirs:
+                        if d.endswith('.D') or d.endswith('.d'):
+                            d_path = os.path.join(root, d)
+                            extracted_paths.append(d_path)
+
+                # If the extracted folder itself is a .D folder
+                if extract_dir.endswith('.D') or extract_dir.endswith('.d'):
+                    extracted_paths.append(extract_dir)
+
+                # Clean up zip file
+                os.remove(zip_path)
+
+        except Exception as e:
+            st.error(f"Error processing {uploaded_file.name}: {e}")
+
+    return extracted_paths
+
+
+def sidebar_file_upload():
+    """Render file upload interface in sidebar."""
+    st.sidebar.header("Upload Data")
+
+    st.sidebar.markdown("""
+    **Instructions:**
+    1. ZIP your `.D` folder(s)
+    2. Upload the ZIP file(s) below
+    3. Select samples for analysis
+    """)
+
+    uploaded_files = st.sidebar.file_uploader(
+        "Upload .D folder (as ZIP)",
+        type=['zip'],
+        accept_multiple_files=True,
+        key="file_uploader"
+    )
+
+    if uploaded_files:
+        # Process uploads
+        new_paths = handle_file_upload(uploaded_files)
+
+        # Add to selected files if not already there
+        for path in new_paths:
+            if path not in st.session_state.selected_files:
+                st.session_state.selected_files.append(path)
+
+    # Show uploaded/selected files
+    if st.session_state.selected_files:
+        st.sidebar.subheader(f"Selected Files ({len(st.session_state.selected_files)})")
+
+        for path in st.session_state.selected_files:
+            col1, col2 = st.sidebar.columns([4, 1])
+            with col1:
+                st.caption(Path(path).name)
+            with col2:
+                if st.button("X", key=f"remove_upload_{path}"):
+                    st.session_state.selected_files.remove(path)
+                    if path in st.session_state.loaded_samples:
+                        del st.session_state.loaded_samples[path]
+                    st.rerun()
+
+        if st.sidebar.button("Clear all uploads"):
+            st.session_state.selected_files = []
+            st.session_state.loaded_samples = {}
+            # Clean up temp directory
+            if st.session_state.uploaded_files_dir and os.path.exists(st.session_state.uploaded_files_dir):
+                shutil.rmtree(st.session_state.uploaded_files_dir, ignore_errors=True)
+                st.session_state.uploaded_files_dir = None
+            st.rerun()
+
+    return st.session_state.selected_files
+
+
+def get_folder_contents(path: str) -> tuple[list[dict], list[dict]]:
+    """Get subfolders and .D folders in a directory."""
+    subfolders = []
+    d_folders = []
+
+    try:
+        p = Path(path)
+        for item in p.iterdir():
+            try:
+                name = item.name
+                # Skip hidden files/folders
+                if name.startswith('.'):
+                    continue
+
+                if item.is_dir():
+                    if name.endswith('.D') or name.endswith('.d'):
+                        # This is a .D data folder
+                        try:
+                            stat = item.stat()
+                            d_folders.append({
+                                'path': str(item),
+                                'name': name,
+                                'date': stat.st_mtime,
+                            })
+                        except (OSError, PermissionError):
+                            pass
+                    else:
+                        # Regular subfolder
+                        subfolders.append({
+                            'path': str(item),
+                            'name': name
+                        })
+            except (OSError, PermissionError):
+                # Skip files/folders we can't access
+                continue
+    except (OSError, PermissionError) as e:
+        st.sidebar.error(f"Cannot access folder: {e}")
+
+    # Sort results
+    subfolders.sort(key=lambda x: x['name'].lower())
+    d_folders.sort(key=lambda x: x['name'].lower())
+
+    return subfolders, d_folders
+
+
+def sidebar_file_browser():
+    """Render the interactive file browser in the sidebar."""
+
+    current_path = st.session_state.current_path
+
+    # File browser in collapsible expander
+    with st.sidebar.expander("File Browser", expanded=len(st.session_state.selected_files) == 0):
+        # Show current path
+        st.text_input(
+            "Current Path",
+            value=current_path,
+            key="path_display",
+            disabled=True
+        )
+
+        # Navigation buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("↑ Up", use_container_width=True):
+                parent = str(Path(current_path).parent)
+                st.session_state.current_path = parent
+                st.rerun()
+        with col2:
+            if st.button("⌂ Home", use_container_width=True):
+                st.session_state.current_path = config.BASE_PATH
+                st.rerun()
+
+        # Check if path exists
+        if not Path(current_path).exists():
+            st.warning(f"Path not found: {current_path}")
+            st.info("Make sure the network drive is mounted.")
+            if st.button("Set custom path"):
+                new_path = st.text_input("Enter path:", value="/")
+                if new_path and Path(new_path).exists():
+                    st.session_state.current_path = new_path
+                    st.rerun()
+            return []
+
+        # Get contents
+        subfolders, d_folders = get_folder_contents(current_path)
+
+        # Show subfolders as clickable buttons
+        if subfolders:
+            st.caption("Folders")
+            for folder in subfolders:
+                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", use_container_width=True):
+                    st.session_state.current_path = folder['path']
+                    st.rerun()
+
+        # Show .D folders for selection
+        if d_folders:
+            st.caption(f"Data Files ({len(d_folders)})")
+
+            # Sort options
+            sort_by = st.radio("Sort by", ["Name", "Date"], horizontal=True)
+            if sort_by == "Date":
+                d_folders.sort(key=lambda x: x['date'], reverse=True)
+            else:
+                d_folders.sort(key=lambda x: x['name'])
+
+            # Checkbox for each .D folder
+            for d_folder in d_folders:
+                is_selected = d_folder['path'] in st.session_state.selected_files
+                if st.checkbox(
+                    f"{d_folder['name']}",
+                    value=is_selected,
+                    key=f"select_{d_folder['path']}"
+                ):
+                    if d_folder['path'] not in st.session_state.selected_files:
+                        st.session_state.selected_files.append(d_folder['path'])
+                else:
+                    if d_folder['path'] in st.session_state.selected_files:
+                        st.session_state.selected_files.remove(d_folder['path'])
+
+        if not subfolders and not d_folders:
+            st.info("No folders or .D files found here")
+
+    # Show selected files summary in expander
+    if st.session_state.selected_files:
+        with st.sidebar.expander(f"Selected Files ({len(st.session_state.selected_files)})", expanded=True):
+            for path in st.session_state.selected_files:
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.caption(Path(path).name)
+                with col2:
+                    if st.button("X", key=f"remove_{path}"):
+                        st.session_state.selected_files.remove(path)
+                        st.rerun()
+
+            if st.button("Clear all", use_container_width=True):
+                st.session_state.selected_files = []
+                st.rerun()
+
+    return st.session_state.selected_files
+
+
+def sidebar_settings():
+    """Render settings in sidebar."""
+    st.sidebar.header("Settings")
+
+    # Graph/Export settings (collapsible, at top)
+    with st.sidebar.expander("Graph & Export Settings"):
+        # DPI
+        export_dpi = st.slider(
+            "Export DPI",
+            min_value=72,
+            max_value=600,
+            value=config.EXPORT_DPI,
+            step=50,
+            help="Resolution for PNG export"
+        )
+
+        # Figure dimensions
+        fig_width = st.slider(
+            "Figure width (inches)",
+            min_value=6,
+            max_value=16,
+            value=10,
+            step=1
+        )
+        fig_height_per_panel = st.slider(
+            "Height per panel (inches)",
+            min_value=2,
+            max_value=5,
+            value=3,
+            step=1
+        )
+
+        # Line settings
+        line_width = st.slider(
+            "Line width",
+            min_value=0.5,
+            max_value=3.0,
+            value=0.8,
+            step=0.1
+        )
+
+        # Grid
+        show_grid = st.checkbox("Show grid", value=False)
+
+        st.caption("Time progression colors:")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            color_initial = st.color_picker("Initial", config.TIME_COLORS["initial"])
+        with col2:
+            color_mid = st.color_picker("Mid", config.TIME_COLORS["mid"])
+        with col3:
+            color_final = st.color_picker("Final", config.TIME_COLORS["final"])
+
+    # Labels & Titles settings
+    with st.sidebar.expander("Labels & Titles"):
+        # Main titles
+        title_single = st.text_input("Single sample title", value="Sample: {name}", help="Use {name} for sample name")
+        title_progression = st.text_input("Time progression title", value="Time Progression Analysis")
+
+        # Axis labels
+        x_label = st.text_input("X-axis label", value="Time (min)")
+
+        st.caption("Y-axis labels:")
+        y_label_uv = st.text_input("UV Y-axis", value="UV {wavelength}nm (mAU)", help="Use {wavelength} for wavelength value")
+        y_label_tic = st.text_input("TIC Y-axis", value="TIC Intensity")
+        y_label_eic = st.text_input("EIC Y-axis", value="EIC Intensity")
+
+        st.caption("Panel titles:")
+        panel_title_uv = st.text_input("UV panel", value="UV Chromatogram ({wavelength} nm)")
+        panel_title_tic = st.text_input("TIC panel", value="Total Ion Chromatogram (TIC)")
+        panel_title_eic = st.text_input("EIC panel", value="EIC m/z {mz} (±{window})", help="Use {mz} and {window}")
+
+    # Ionization mode
+    ion_mode = st.sidebar.radio(
+        "Ionization Mode",
+        ["Positive (+)", "Negative (-)"],
+        horizontal=True,
+        help="Select MS ionization mode"
+    )
+
+    # UV wavelength
+    uv_wl = st.sidebar.number_input(
+        "UV Wavelength (nm)",
+        min_value=190.0,
+        max_value=800.0,
+        value=float(config.UV_WAVELENGTH),
+        step=1.0
+    )
+
+    # m/z window
+    mz_window = st.sidebar.slider(
+        "m/z window (±)",
+        min_value=0.1,
+        max_value=2.0,
+        value=config.DEFAULT_MZ_WINDOW,
+        step=0.1
+    )
+
+    # Smoothing settings
+    with st.sidebar.expander("Smoothing"):
+        uv_smooth = st.slider(
+            "UV smoothing",
+            min_value=1,
+            max_value=99,
+            value=config.UV_SMOOTHING_WINDOW,
+            step=2
+        )
+        eic_smooth = st.slider(
+            "EIC smoothing",
+            min_value=1,
+            max_value=49,
+            value=config.EIC_SMOOTHING_WINDOW,
+            step=2
+        )
+
+    # m/z targets in sidebar
+    with st.sidebar.expander("Target m/z Values", expanded=True):
+        # Quick add
+        new_mz = st.number_input(
+            "Add m/z",
+            min_value=0.0,
+            max_value=2000.0,
+            value=100.0,
+            step=0.01,
+            key="new_mz_input"
+        )
+        if st.button("+ Add", key="add_mz_btn"):
+            if new_mz not in st.session_state.mz_targets:
+                st.session_state.mz_targets.append(new_mz)
+                st.rerun()
+
+        # Show current targets
+        st.caption("Current targets:")
+        for i, mz in enumerate(st.session_state.mz_targets):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"m/z {mz:.2f}")
+            with col2:
+                if st.button("X", key=f"rm_mz_{i}"):
+                    st.session_state.mz_targets.pop(i)
+                    st.rerun()
+
+        if st.button("Reset to defaults"):
+            st.session_state.mz_targets = config.DEFAULT_MZ_VALUES.copy()
+            st.rerun()
+
+    return {
+        'uv_wavelength': uv_wl,
+        'uv_smoothing': uv_smooth,
+        'eic_smoothing': eic_smooth,
+        'mz_window': mz_window,
+        'ion_mode': 'positive' if 'Positive' in ion_mode else 'negative',
+        'export_dpi': export_dpi,
+        'fig_width': fig_width,
+        'fig_height_per_panel': fig_height_per_panel,
+        'line_width': line_width,
+        'show_grid': show_grid,
+        'y_scale': 'linear',
+        'colors': {
+            'initial': color_initial,
+            'mid': color_mid,
+            'final': color_final
+        },
+        'labels': {
+            'title_single': title_single,
+            'title_progression': title_progression,
+            'x_label': x_label,
+            'y_label_uv': y_label_uv,
+            'y_label_tic': y_label_tic,
+            'y_label_eic': y_label_eic,
+            'panel_title_uv': panel_title_uv,
+            'panel_title_tic': panel_title_tic,
+            'panel_title_eic': panel_title_eic
+        }
+    }
+
+
+def load_samples(file_paths: list[str]) -> dict:
+    """Load selected samples."""
+    samples = {}
+    for path in file_paths:
+        if path not in st.session_state.loaded_samples:
+            with st.spinner(f"Loading {Path(path).name}..."):
+                sample = read_sample_cached(path)
+                st.session_state.loaded_samples[path] = sample
+        samples[path] = st.session_state.loaded_samples[path]
+    return samples
+
+
+def single_sample_analysis(sample, settings):
+    """Display single sample analysis view."""
+    st.header(f"Single Sample: {sample.name}")
+
+    if sample.error:
+        st.error(f"Error loading sample: {sample.error}")
+        return
+
+    # Sample info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        has_uv = sample.uv_data is not None
+        st.metric("UV Data", "Available" if has_uv else "Not found")
+    with col2:
+        has_ms = sample.ms_scans is not None
+        st.metric("MS Data", "Available" if has_ms else "Not found")
+    with col3:
+        if sample.ms_times is not None:
+            st.metric("MS Scans", len(sample.ms_times))
+
+    # Generate figure
+    st.divider()
+    mz_targets = st.session_state.mz_targets
+    style = {
+        'fig_width': settings['fig_width'],
+        'fig_height_per_panel': settings['fig_height_per_panel'],
+        'line_width': settings['line_width'],
+        'show_grid': settings['show_grid'],
+        'y_scale': settings['y_scale'],
+        'colors': settings['colors'],
+        'labels': settings['labels']
+    }
+    fig = create_single_sample_figure(
+        sample,
+        uv_wavelength=settings['uv_wavelength'],
+        eic_targets=mz_targets,
+        style=style,
+        mz_window=settings['mz_window'],
+        uv_smoothing=settings['uv_smoothing'],
+        eic_smoothing=settings['eic_smoothing']
+    )
+
+    # Display
+    st.pyplot(fig)
+
+    # Export buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        png_data = export_figure(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PNG",
+            data=png_data,
+            file_name=f"{sample.name}_analysis.png",
+            mime="image/png"
+        )
+    with col2:
+        svg_data = export_figure_svg(fig)
+        st.download_button(
+            label="Download SVG",
+            data=svg_data,
+            file_name=f"{sample.name}_analysis.svg",
+            mime="image/svg+xml"
+        )
+    with col3:
+        pdf_data = export_figure_pdf(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PDF",
+            data=pdf_data,
+            file_name=f"{sample.name}_analysis.pdf",
+            mime="application/pdf"
+        )
+
+    # Show debug info at bottom
+    with st.expander("Data Debug Info"):
+        if hasattr(sample, '_debug_info') and sample._debug_info:
+            st.json(sample._debug_info)
+
+        # Show available wavelengths
+        if sample.uv_wavelengths is not None:
+            try:
+                wl_list = [float(w) for w in sample.uv_wavelengths]
+                st.write(f"UV wavelengths: {', '.join([f'{w:.0f}' for w in wl_list[:20]])}")
+            except:
+                st.write(f"UV wavelengths (raw): {list(sample.uv_wavelengths[:10])}")
+
+        # Show MS scan info
+        if sample.ms_scans is not None and len(sample.ms_scans) > 0:
+            scan = sample.ms_scans[0]
+            if scan is not None:
+                st.write(f"First scan type: {type(scan).__name__}")
+                if hasattr(scan, 'mz'):
+                    st.write(f"  Has 'mz' attr: {len(scan.mz)} values, range: {min(scan.mz):.1f} - {max(scan.mz):.1f}")
+                if hasattr(scan, 'masses'):
+                    st.write(f"  Has 'masses' attr: {len(scan.masses)} values")
+                if hasattr(scan, 'intensity'):
+                    st.write(f"  Has 'intensity' attr: {len(scan.intensity)} values")
+                if hasattr(scan, 'intensities'):
+                    st.write(f"  Has 'intensities' attr: {len(scan.intensities)} values")
+                if isinstance(scan, np.ndarray):
+                    st.write(f"  Array shape: {scan.shape}")
+
+
+def time_progression_analysis(samples: list, settings):
+    """Display time progression comparison view."""
+    st.header("Time Progression Analysis")
+
+    if len(samples) < 2:
+        st.warning("Select at least 2 samples for time progression analysis")
+        return
+
+    if len(samples) > 3:
+        st.warning("Maximum 3 samples supported. Using first 3.")
+        samples = samples[:3]
+
+    # Check for errors
+    for sample in samples:
+        if sample.error:
+            st.error(f"Error loading {sample.name}: {sample.error}")
+            return
+
+    # Label inputs
+    st.subheader("Sample Labels")
+    labels = []
+    default_labels = ["Initial (t=0)", "Mid timepoint", "Final/Overnight"]
+    cols = st.columns(len(samples))
+    for i, (col, sample) in enumerate(zip(cols, samples)):
+        with col:
+            label = st.text_input(
+                f"Label for {sample.name}",
+                value=default_labels[i] if i < len(default_labels) else f"Sample {i+1}",
+                key=f"label_{i}"
+            )
+            labels.append(label)
+
+    # Generate figure
+    st.divider()
+    mz_targets = st.session_state.mz_targets
+    style = {
+        'fig_width': settings['fig_width'],
+        'fig_height_per_panel': settings['fig_height_per_panel'],
+        'line_width': settings['line_width'],
+        'show_grid': settings['show_grid'],
+        'y_scale': settings['y_scale'],
+        'colors': settings['colors'],
+        'labels': settings['labels']
+    }
+    fig = create_time_progression_figure(
+        samples,
+        labels,
+        uv_wavelength=settings['uv_wavelength'],
+        eic_targets=mz_targets,
+        style=style,
+        mz_window=settings['mz_window'],
+        uv_smoothing=settings['uv_smoothing'],
+        eic_smoothing=settings['eic_smoothing']
+    )
+
+    # Display
+    st.pyplot(fig)
+
+    # Export buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        png_data = export_figure(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PNG",
+            data=png_data,
+            file_name="time_progression_analysis.png",
+            mime="image/png"
+        )
+    with col2:
+        svg_data = export_figure_svg(fig)
+        st.download_button(
+            label="Download SVG",
+            data=svg_data,
+            file_name="time_progression_analysis.svg",
+            mime="image/svg+xml"
+        )
+    with col3:
+        pdf_data = export_figure_pdf(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PDF",
+            data=pdf_data,
+            file_name="time_progression_analysis.pdf",
+            mime="application/pdf"
+        )
+
+
+def eic_batch_analysis(sample, settings):
+    """Display EIC batch extraction view."""
+    st.header(f"EIC Batch Analysis: {sample.name}")
+
+    if sample.error:
+        st.error(f"Error loading sample: {sample.error}")
+        return
+
+    if sample.ms_scans is None:
+        st.warning("No MS data available for this sample")
+        return
+
+    mz_targets = st.session_state.mz_targets
+
+    # Display options
+    col1, col2 = st.columns(2)
+    with col1:
+        overlay = st.checkbox("Overlay EICs", value=True)
+    with col2:
+        normalize = st.checkbox("Normalize", value=True)
+
+    # Generate figure
+    st.divider()
+    fig = create_eic_comparison_figure(
+        sample,
+        mz_targets,
+        mz_window=settings['mz_window'],
+        smoothing=settings['eic_smoothing'],
+        overlay=overlay
+    )
+
+    st.pyplot(fig)
+
+    # Peak areas table
+    st.subheader("Peak Areas")
+    peak_data = []
+    for mz in mz_targets:
+        eic = extract_eic(sample, mz, settings['mz_window'])
+        if eic is not None and sample.ms_times is not None:
+            smoothed = smooth_data(eic, settings['eic_smoothing'])
+            total_area = calculate_peak_area(sample.ms_times, smoothed)
+            peaks = find_peaks(sample.ms_times, smoothed)
+            main_peak_time = peaks[0]['time'] if peaks else None
+            main_peak_area = peaks[0]['area'] if peaks else None
+
+            peak_data.append({
+                'm/z': f"{mz:.2f}",
+                'Total Area': f"{total_area:.2e}",
+                'Main Peak Time': f"{main_peak_time:.2f} min" if main_peak_time else "N/A",
+                'Main Peak Area': f"{main_peak_area:.2e}" if main_peak_area else "N/A"
+            })
+
+    if peak_data:
+        st.table(pd.DataFrame(peak_data))
+
+    # Export buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        png_data = export_figure(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PNG",
+            data=png_data,
+            file_name=f"{sample.name}_eic_batch.png",
+            mime="image/png"
+        )
+    with col2:
+        svg_data = export_figure_svg(fig)
+        st.download_button(
+            label="Download SVG",
+            data=svg_data,
+            file_name=f"{sample.name}_eic_batch.svg",
+            mime="image/svg+xml"
+        )
+    with col3:
+        pdf_data = export_figure_pdf(fig, dpi=settings['export_dpi'])
+        st.download_button(
+            label="Download PDF",
+            data=pdf_data,
+            file_name=f"{sample.name}_eic_batch.pdf",
+            mime="application/pdf"
+        )
+
+
+def deconvolution_analysis(sample, settings):
+    """Display protein deconvolution analysis view."""
+    import matplotlib.pyplot as plt
+
+    st.header(f"Protein Deconvolution: {sample.name}")
+
+    if sample.error:
+        st.error(f"Error loading sample: {sample.error}")
+        return
+
+    if sample.ms_scans is None or sample.ms_times is None:
+        st.warning("No MS data available for this sample")
+        return
+
+    # Time range selection
+    st.subheader("Select Time Region")
+
+    min_time = float(sample.ms_times[0])
+    max_time = float(sample.ms_times[-1])
+
+    # Auto-detect main peak
+    if 'deconv_auto_start' not in st.session_state:
+        st.session_state.deconv_auto_start = None
+        st.session_state.deconv_auto_end = None
+
+    if sample.tic is not None:
+        # Find the main peak in TIC
+        from analysis import find_peaks
+        tic_smoothed = smooth_data(sample.tic, 5)
+        peaks = find_peaks(sample.ms_times, tic_smoothed, height_threshold=0.3, prominence=0.1)
+
+        if peaks:
+            # Get the highest peak
+            main_peak = max(peaks, key=lambda p: p['intensity'])
+            peak_time = main_peak['time']
+            peak_idx = main_peak['index']
+
+            # Estimate peak width (find where intensity drops to 30% of peak)
+            peak_int = main_peak['intensity']
+            threshold = peak_int * 0.3
+
+            # Find left boundary
+            left_idx = peak_idx
+            while left_idx > 0 and tic_smoothed[left_idx] > threshold:
+                left_idx -= 1
+
+            # Find right boundary
+            right_idx = peak_idx
+            while right_idx < len(tic_smoothed) - 1 and tic_smoothed[right_idx] > threshold:
+                right_idx += 1
+
+            auto_start = float(sample.ms_times[left_idx])
+            auto_end = float(sample.ms_times[right_idx])
+
+            st.session_state.deconv_auto_start = auto_start
+            st.session_state.deconv_auto_end = auto_end
+
+    # Initialize widget keys in session state if not present
+    if 'deconv_start_input' not in st.session_state:
+        st.session_state.deconv_start_input = min_time
+    if 'deconv_end_input' not in st.session_state:
+        st.session_state.deconv_end_input = min(min_time + 1.0, max_time)
+
+    # Auto-detect button
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("Auto-detect main peak", type="secondary"):
+            if st.session_state.deconv_auto_start is not None:
+                st.session_state.deconv_start_input = st.session_state.deconv_auto_start
+                st.session_state.deconv_end_input = st.session_state.deconv_auto_end
+                st.rerun()
+    with col2:
+        if st.session_state.deconv_auto_start is not None:
+            st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        start_time = st.number_input(
+            "Start time (min)",
+            min_value=min_time,
+            max_value=max_time,
+            step=0.01,
+            format="%.3f",
+            key="deconv_start_input"
+        )
+    with col2:
+        end_time = st.number_input(
+            "End time (min)",
+            min_value=min_time,
+            max_value=max_time,
+            step=0.01,
+            format="%.3f",
+            key="deconv_end_input"
+        )
+
+    # Show TIC with region selector
+    if sample.tic is not None:
+        fig_tic, ax = plt.subplots(figsize=(12, 3))
+        ax.plot(sample.ms_times, sample.tic, 'b-', linewidth=0.8)
+        ax.axvspan(start_time, end_time, alpha=0.3, color='yellow', label='Selected region')
+        ax.set_xlabel("Time (min)")
+        ax.set_ylabel("TIC Intensity")
+        ax.set_title("TIC - Select region (adjust times above)")
+        ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig_tic)
+        plt.close(fig_tic)
+
+    # Always show mass spectrum for selected region
+    st.subheader(f"Mass Spectrum ({start_time:.2f} - {end_time:.2f} min)")
+
+    mz, intensity = sum_spectra_in_range(sample, start_time, end_time)
+
+    if len(mz) > 0:
+        # m/z range filter
+        col1, col2 = st.columns(2)
+        with col1:
+            mz_min_display = st.number_input("Display m/z min", value=float(mz[0]), step=10.0, key="mz_min")
+        with col2:
+            mz_max_display = st.number_input("Display m/z max", value=float(mz[-1]), step=10.0, key="mz_max")
+
+        # Filter for display
+        display_mask = (mz >= mz_min_display) & (mz <= mz_max_display)
+        mz_display = mz[display_mask]
+        intensity_display = intensity[display_mask]
+
+        # Find peaks for labeling (use centroiding for accurate m/z)
+        peaks = find_spectrum_peaks(mz_display, intensity_display, height_threshold=0.05, min_distance=3, use_centroid=True)
+        top_peaks = peaks[:15]  # Label top 15 peaks
+
+        # Plot mass spectrum
+        fig_ms, ax = plt.subplots(figsize=(14, 5))
+        ax.plot(mz_display, intensity_display, 'b-', linewidth=0.8)
+
+        # Add peak labels
+        for peak in top_peaks:
+            ax.annotate(
+                f"{peak['mz']:.2f}",
+                xy=(peak['mz'], peak['intensity']),
+                xytext=(0, 5),
+                textcoords='offset points',
+                ha='center',
+                fontsize=8,
+                rotation=90
+            )
+
+        ax.set_xlabel("m/z")
+        ax.set_ylabel("Intensity")
+        ax.set_title(f"Summed Mass Spectrum ({start_time:.2f} - {end_time:.2f} min)")
+        ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(mz_min_display, mz_max_display)
+        st.pyplot(fig_ms)
+        plt.close(fig_ms)
+
+        # Store spectrum in session state for deconvolution
+        st.session_state.deconv_mz = mz
+        st.session_state.deconv_intensity = intensity
+        st.session_state.deconv_time_range = (start_time, end_time)
+    else:
+        st.warning("No mass spectrum data found in selected region")
+        return
+
+    st.divider()
+
+    # Deconvolution parameters
+    st.subheader("Deconvolution")
+
+    with st.expander("Deconvolution Parameters", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            low_mw = st.number_input("Low MW (Da)", min_value=100, max_value=500000, value=500, step=100)
+        with col2:
+            high_mw = st.number_input("High MW (Da)", min_value=100, max_value=500000, value=50000, step=1000)
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            min_charge = st.number_input("Min charge", min_value=1, max_value=100, value=5)
+        with col2:
+            max_charge = st.number_input("Max charge", min_value=1, max_value=100, value=50)
+        with col3:
+            min_peaks = st.number_input("Min peaks in set", min_value=2, max_value=50, value=3)
+        with col4:
+            max_peaks = st.number_input("Max peaks in set", min_value=2, max_value=100, value=50)
+        with col5:
+            mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=0.5, step=0.1)
+
+    # Run deconvolution button
+    if st.button("Run Deconvolution", type="primary"):
+        with st.spinner("Running deconvolution..."):
+            # Run deconvolution
+            results = deconvolute_protein(
+                mz, intensity,
+                min_charge=min_charge,
+                max_charge=max_charge,
+                mass_tolerance=mass_tolerance,
+                min_peaks=min_peaks,
+                max_peaks=max_peaks
+            )
+
+            # Filter results by MW range
+            results = [r for r in results if low_mw <= r['mass'] <= high_mw]
+
+            # Store results in session state
+            st.session_state.deconv_results = results
+            st.session_state.deconv_mw_range = (low_mw, high_mw)
+
+    # Display results if available
+    if hasattr(st.session_state, 'deconv_results') and st.session_state.deconv_results:
+        results = st.session_state.deconv_results
+        mz = st.session_state.deconv_mz
+        intensity = st.session_state.deconv_intensity
+        time_range = st.session_state.deconv_time_range
+
+        st.divider()
+        st.subheader(f"Results ({len(results)} masses detected)")
+
+        # Results table
+        result_data = []
+        for i, r in enumerate(results[:5]):  # Top 5
+            result_data.append({
+                'Rank': i + 1,
+                'Mass (Da)': f"{r['mass']:.2f}",
+                'Std Dev': f"{r['mass_std']:.2f}",
+                'Charge States': f"{min(r['charge_states'])}-{max(r['charge_states'])}",
+                'Num Charges': r['num_charges'],
+                'Rel. Intensity': f"{r['intensity'] / results[0]['intensity'] * 100:.1f}%"
+            })
+
+        st.table(pd.DataFrame(result_data))
+
+        # Create figure
+        style = {
+            'fig_width': settings['fig_width'],
+            'line_width': settings['line_width'],
+            'show_grid': settings['show_grid']
+        }
+
+        fig = create_deconvolution_figure(sample, time_range[0], time_range[1], results, style)
+        st.pyplot(fig)
+
+        # Show theoretical m/z for selected mass
+        st.subheader("Theoretical m/z Values")
+        selected_mass_idx = st.selectbox(
+            "Select mass to view theoretical peaks",
+            range(len(results[:10])),
+            format_func=lambda i: f"{results[i]['mass']:.2f} Da"
+        )
+
+        if selected_mass_idx is not None:
+            selected_result = results[selected_mass_idx]
+            theoretical = get_theoretical_mz(selected_result['mass'], selected_result['charge_states'])
+
+            theo_data = []
+            for t in theoretical:
+                theo_data.append({
+                    'Charge': f"+{t['charge']}",
+                    'm/z': f"{t['mz']:.4f}"
+                })
+            st.table(pd.DataFrame(theo_data))
+
+        # Export buttons
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            png_data = export_figure(fig, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PNG",
+                data=png_data,
+                file_name=f"{sample.name}_deconvolution.png",
+                mime="image/png"
+            )
+        with col2:
+            svg_data = export_figure_svg(fig)
+            st.download_button(
+                label="Download SVG",
+                data=svg_data,
+                file_name=f"{sample.name}_deconvolution.svg",
+                mime="image/svg+xml"
+            )
+        with col3:
+            pdf_data = export_figure_pdf(fig, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PDF",
+                data=pdf_data,
+                file_name=f"{sample.name}_deconvolution.pdf",
+                mime="application/pdf"
+            )
+
+    elif hasattr(st.session_state, 'deconv_results'):
+        st.info("No protein masses detected. Try adjusting the parameters or selecting a different time region.")
+
+
+def main():
+    """Main application entry point."""
+    init_session_state()
+
+    st.title("LC-MS Analysis")
+
+    # Check rainbow availability
+    if not check_rainbow_available():
+        st.error("rainbow-api is not installed. Please install it with: pip install rainbow-api")
+        return
+
+    # Data source selector in sidebar
+    st.sidebar.header("Data Source")
+    data_source = st.sidebar.radio(
+        "Select data source:",
+        ["Upload Files", "Browse Local"],
+        index=0 if st.session_state.data_source == 'upload' else 1,
+        horizontal=True
+    )
+    st.session_state.data_source = 'upload' if data_source == "Upload Files" else 'browse'
+
+    # Sidebar - file selection based on mode
+    if st.session_state.data_source == 'upload':
+        selected_files = sidebar_file_upload()
+    else:
+        selected_files = sidebar_file_browser()
+
+    settings = sidebar_settings()
+
+    # Main content
+    if not selected_files:
+        if st.session_state.data_source == 'upload':
+            st.info("Upload .D folder(s) as ZIP files using the sidebar to begin analysis.")
+            st.markdown("""
+            ### How to Upload
+            1. **ZIP your .D folder** - Right-click on your `.D` folder and compress/zip it
+            2. **Upload** - Use the file uploader in the sidebar
+            3. **Analyze** - Select samples and view results
+
+            ### Features
+            - **Single Sample Analysis**: View UV, TIC, and EIC chromatograms
+            - **Time Progression**: Compare 2-3 samples across timepoints
+            - **EIC Batch Extraction**: Extract multiple EICs with peak area calculation
+            - **Protein Deconvolution**: Deconvolute multiply-charged protein spectra
+            - **Export**: Download plots as PNG, SVG, or PDF
+            """)
+        else:
+            st.info("Select one or more .D folders from the sidebar to begin analysis.")
+            st.markdown("""
+            ### Features
+            - **Single Sample Analysis**: View UV, TIC, and EIC chromatograms
+            - **Time Progression**: Compare 2-3 samples across timepoints
+            - **EIC Batch Extraction**: Extract multiple EICs with peak area calculation
+            - **Protein Deconvolution**: Deconvolute multiply-charged protein spectra
+            - **Export**: Download plots as PNG, SVG, or PDF
+            """)
+        return
+
+    # Load samples
+    samples = load_samples(selected_files)
+    sample_list = [samples[p] for p in selected_files]
+
+    # Analysis tabs
+    if len(selected_files) == 1:
+        tab1, tab2, tab3 = st.tabs(["Single Sample", "EIC Batch", "Deconvolution"])
+
+        with tab1:
+            single_sample_analysis(sample_list[0], settings)
+
+        with tab2:
+            eic_batch_analysis(sample_list[0], settings)
+
+        with tab3:
+            deconvolution_analysis(sample_list[0], settings)
+    else:
+        tab1, tab2, tab3, tab4 = st.tabs(["Time Progression", "Single Sample", "EIC Batch", "Deconvolution"])
+
+        with tab1:
+            time_progression_analysis(sample_list, settings)
+
+        with tab2:
+            # Sample selector for single analysis
+            sample_names = [s.name for s in sample_list]
+            selected_name = st.selectbox("Select sample", sample_names)
+            selected_idx = sample_names.index(selected_name)
+            single_sample_analysis(sample_list[selected_idx], settings)
+
+        with tab3:
+            # Sample selector for EIC batch
+            sample_names = [s.name for s in sample_list]
+            selected_name = st.selectbox("Select sample for EIC", sample_names, key="eic_sample")
+            selected_idx = sample_names.index(selected_name)
+            eic_batch_analysis(sample_list[selected_idx], settings)
+
+        with tab4:
+            # Sample selector for deconvolution
+            sample_names = [s.name for s in sample_list]
+            selected_name = st.selectbox("Select sample for Deconvolution", sample_names, key="deconv_sample")
+            selected_idx = sample_names.index(selected_name)
+            deconvolution_analysis(sample_list[selected_idx], settings)
+
+
+if __name__ == "__main__":
+    main()
