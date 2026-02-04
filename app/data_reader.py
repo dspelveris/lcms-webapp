@@ -163,6 +163,8 @@ class SampleData:
 
         try:
             files = os.listdir(folder)
+            self._debug_info['fallback_folder'] = folder
+            self._debug_info['fallback_files_found'] = files[:20]  # First 20 files
 
             # Try to parse each file individually
             for f in files:
@@ -219,9 +221,16 @@ class SampleData:
             data = None
             try:
                 data = rb.read(self.folder_path)
+                # Check if rb.read returned empty data
+                if data and hasattr(data, 'by_detector') and len(data.by_detector) == 0:
+                    self._debug_info['rb_read_empty'] = True
+                    data = None  # Force fallback
             except Exception as e:
                 self._debug_info['rb_read_error'] = str(e)
-                # Try fallback: read individual files
+
+            # Try fallback if normal read failed or returned empty
+            if data is None:
+                self._debug_info['using_fallback'] = True
                 data = self._fallback_read()
 
             if data is None:
