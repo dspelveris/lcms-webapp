@@ -171,12 +171,17 @@ def sidebar_file_upload():
             with st.sidebar.expander("Extracted files (debug)"):
                 for d_path in new_paths:
                     st.caption(f"**{Path(d_path).name}**")
+                    st.text(f"Path: {d_path}")
                     try:
                         files = list(Path(d_path).iterdir())
                         file_names = [f.name for f in files if f.is_file()]
-                        st.text(", ".join(file_names[:15]))
+                        st.text(f"Files ({len(file_names)}): {', '.join(file_names[:20])}")
+                        # Check for key files
+                        has_ms = any(f.endswith('.MS') for f in file_names)
+                        has_uv = any(f.endswith('.ch') for f in file_names)
+                        st.text(f"MS: {'Yes' if has_ms else 'No'}, UV: {'Yes' if has_uv else 'No'}")
                     except Exception as e:
-                        st.text(f"Error: {e}")
+                        st.text(f"Error listing: {e}")
 
     # Show uploaded/selected files
     if st.session_state.selected_files:
@@ -565,6 +570,11 @@ def single_sample_analysis(sample, settings):
 
     if sample.error:
         st.error(f"Error loading sample: {sample.error}")
+        # Show debug info even on error
+        with st.expander("Debug Info"):
+            st.write(f"Path: {sample.folder_path}")
+            if hasattr(sample, '_debug_info'):
+                st.json(sample._debug_info)
         return
 
     # Sample info
