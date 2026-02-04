@@ -1,14 +1,15 @@
 # LC-MS Analysis Web App
 
-A Dockerized Streamlit web application for LC-MS data analysis with multi-file selection, time progression analysis, and EIC extraction capabilities.
+A Streamlit web application for LC-MS (Liquid Chromatography-Mass Spectrometry) data analysis. Supports Agilent .D folders with UV-Vis and MS data.
 
 ## Features
 
-- **File Browser**: Browse network drive for Agilent `.D` folders
-- **Single Sample Analysis**: View UV chromatogram, MS TIC, and interactive EIC extraction
-- **Time Progression Comparison**: Compare 2-3 samples with color-coded overlays
-- **EIC Batch Extraction**: Extract multiple EICs with peak area calculation
-- **PNG Export**: Download plots at 200 DPI
+- **File Upload**: Upload ZIP files containing Agilent `.D` folders (cloud) or browse network drive (local)
+- **UV-Vis Chromatograms**: Multi-wavelength detector (MWD) data at 194, 254, 280 nm
+- **Mass Spectrometry**: Total Ion Chromatogram (TIC) and Extracted Ion Chromatograms (EIC)
+- **Protein Deconvolution**: Calculate neutral mass from multiply-charged ion series
+- **Time Progression**: Compare 2-3 samples with color-coded overlays
+- **Export**: Download plots as PNG (300 DPI), SVG, or PDF
 
 ## Quick Start
 
@@ -47,7 +48,7 @@ streamlit run app/main.py
 - EIC Smoothing: 5
 - m/z Window: ±0.5
 - Default m/z values: 680.1, 382.98, 243.99, 321.15
-- Export DPI: 200
+- Export DPI: 300
 
 ## Project Structure
 
