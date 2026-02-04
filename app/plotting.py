@@ -628,7 +628,7 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
             for t in theoretical:
                 ax_spec.axvline(x=t['mz'], color='red', linestyle='--', alpha=0.5, linewidth=0.5)
 
-    # Bottom right: Deconvoluted masses
+    # Bottom right: Deconvoluted masses (linear kDa scale with vertical lines)
     ax_deconv = fig.add_subplot(gs[1, 1])
 
     if deconv_results and len(deconv_results) > 0:
@@ -638,15 +638,28 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
         max_int = max(intensities) if intensities else 1
         norm_intensities = [i / max_int * 100 for i in intensities]
 
-        bars = ax_deconv.bar(range(len(masses)), norm_intensities, color='green', alpha=0.7)
-        ax_deconv.set_xticks(range(len(masses)))
-        ax_deconv.set_xticklabels([f"{m:.2f}" for m in masses], rotation=45, ha='right')
-        ax_deconv.set_xlabel("Deconvoluted Mass (Da)")
+        # Convert to kDa for x-axis
+        masses_kda = [m / 1000 for m in masses]
+
+        # Draw vertical lines (stem plot style)
+        for m_kda, intensity in zip(masses_kda, norm_intensities):
+            ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color='green', linewidth=1.5)
+            ax_deconv.plot(m_kda, intensity, 'go', markersize=4)  # dot at top
+
+        # Set x-axis range: min-20% to max+20%
+        min_mass = min(masses_kda)
+        max_mass = max(masses_kda)
+        mass_range = max_mass - min_mass if max_mass > min_mass else max_mass * 0.1
+        x_margin = mass_range * 0.2 if mass_range > 0 else max_mass * 0.2
+        ax_deconv.set_xlim(min_mass - x_margin, max_mass + x_margin)
+        ax_deconv.set_ylim(0, 110)  # 0-100% with some headroom
+
+        ax_deconv.set_xlabel("Mass (kDa)")
         ax_deconv.set_ylabel("Relative Intensity (%)")
         ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
 
         if show_grid:
-            ax_deconv.grid(True, alpha=0.3, axis='y')
+            ax_deconv.grid(True, alpha=0.3)
     else:
         ax_deconv.text(0.5, 0.5, "No masses detected",
                       ha='center', va='center', transform=ax_deconv.transAxes)
