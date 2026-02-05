@@ -147,49 +147,133 @@ def handle_file_upload(uploaded_files):
     return extracted_paths
 
 
+def handle_folder_upload(uploaded_files):
+    """Handle uploaded files from folder selection (webkitdirectory)."""
+    if not uploaded_files:
+        return []
+
+    extracted_paths = []
+
+    # Create temp directory for this session if not exists
+    if st.session_state.uploaded_files_dir is None or not os.path.exists(st.session_state.uploaded_files_dir):
+        st.session_state.uploaded_files_dir = tempfile.mkdtemp(prefix="lcms_")
+
+    temp_dir = st.session_state.uploaded_files_dir
+
+    # Group files by their .D folder
+    d_folders = {}
+    for uploaded_file in uploaded_files:
+        # File path like "FolderName.D/subfolder/file.ext" or "FolderName.D/file.ext"
+        file_path = uploaded_file.name
+
+        # Skip macOS metadata
+        if '/__MACOSX/' in file_path or file_path.startswith('__MACOSX'):
+            continue
+        basename = os.path.basename(file_path)
+        if basename.startswith('._') or basename == '.DS_Store':
+            continue
+
+        # Find the .D folder in the path
+        parts = file_path.replace('\\', '/').split('/')
+        d_folder_name = None
+        d_folder_idx = -1
+        for i, part in enumerate(parts):
+            if part.endswith('.D') or part.endswith('.d'):
+                d_folder_name = part
+                d_folder_idx = i
+                break
+
+        if d_folder_name:
+            if d_folder_name not in d_folders:
+                d_folders[d_folder_name] = []
+            # Get relative path within .D folder
+            rel_path = '/'.join(parts[d_folder_idx:])
+            d_folders[d_folder_name].append((rel_path, uploaded_file))
+
+    # Write files to temp directory
+    for d_folder_name, files in d_folders.items():
+        d_folder_path = os.path.join(temp_dir, d_folder_name)
+
+        for rel_path, uploaded_file in files:
+            file_full_path = os.path.join(temp_dir, rel_path)
+            os.makedirs(os.path.dirname(file_full_path), exist_ok=True)
+
+            with open(file_full_path, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+
+        if os.path.isdir(d_folder_path):
+            extracted_paths.append(os.path.abspath(d_folder_path))
+
+    return extracted_paths
+
+
 def sidebar_file_upload():
     """Render file upload interface in sidebar."""
     st.sidebar.header("Upload Data")
 
-    st.sidebar.markdown("""
-    **Instructions:**
-    1. ZIP your `.D` folder(s)
-    2. Upload the ZIP file(s) below
-    3. Select samples for analysis
-    """)
-
-    uploaded_files = st.sidebar.file_uploader(
-        "Upload .D folder (as ZIP)",
-        type=['zip'],
-        accept_multiple_files=True,
-        key="file_uploader"
+    # Upload method selector
+    upload_method = st.sidebar.radio(
+        "Upload method",
+        ["ZIP file", "Folder (direct)"],
+        horizontal=True,
+        help="ZIP works everywhere. Folder upload works in Chrome/Edge/Firefox."
     )
 
-    if uploaded_files:
-        # Process uploads
-        new_paths = handle_file_upload(uploaded_files)
+    if upload_method == "ZIP file":
+        st.sidebar.markdown("Upload your `.D` folder as a ZIP file")
 
-        # Add to selected files if not already there
-        for path in new_paths:
-            if path not in st.session_state.selected_files:
-                st.session_state.selected_files.append(path)
+        uploaded_files = st.sidebar.file_uploader(
+            "Upload .D folder (as ZIP)",
+            type=['zip'],
+            accept_multiple_files=True,
+            key="file_uploader_zip"
+        )
 
-        # Show what files were found in the .D folders (for debugging)
-        if new_paths:
-            with st.sidebar.expander("Extracted files (debug)"):
-                for d_path in new_paths:
-                    st.caption(f"**{Path(d_path).name}**")
-                    st.text(f"Path: {d_path}")
-                    try:
-                        files = list(Path(d_path).iterdir())
-                        file_names = [f.name for f in files if f.is_file()]
-                        st.text(f"Files ({len(file_names)}): {', '.join(file_names[:20])}")
-                        # Check for key files
-                        has_ms = any(f.endswith('.MS') for f in file_names)
-                        has_uv = any(f.endswith('.ch') for f in file_names)
-                        st.text(f"MS: {'Yes' if has_ms else 'No'}, UV: {'Yes' if has_uv else 'No'}")
-                    except Exception as e:
-                        st.text(f"Error listing: {e}")
+        if uploaded_files:
+            new_paths = handle_file_upload(uploaded_files)
+            for path in new_paths:
+                if path not in st.session_state.selected_files:
+                    st.session_state.selected_files.append(path)
+
+    else:
+        st.sidebar.markdown("""
+        **Steps:**
+        1. Click 'Browse files' below
+        2. Navigate INTO your .D folder
+        3. Select ALL files (Ctrl+A / Cmd+A)
+        4. Click Open
+        """)
+
+        uploaded_files = st.sidebar.file_uploader(
+            "Select all files from .D folder",
+            accept_multiple_files=True,
+            key="file_uploader_folder"
+        )
+
+        if uploaded_files:
+            new_paths = handle_folder_upload(uploaded_files)
+            for path in new_paths:
+                if path not in st.session_state.selected_files:
+                    st.session_state.selected_files.append(path)
+
+            if new_paths:
+                st.sidebar.success(f"Found {len(new_paths)} .D folder(s)")
+
+    # Show debug info for selected files
+    if st.session_state.selected_files:
+        with st.sidebar.expander("Extracted files (debug)"):
+            for d_path in st.session_state.selected_files:
+                st.caption(f"**{Path(d_path).name}**")
+                st.text(f"Path: {d_path}")
+                try:
+                    files = list(Path(d_path).iterdir())
+                    file_names = [f.name for f in files if f.is_file()]
+                    st.text(f"Files ({len(file_names)}): {', '.join(file_names[:20])}")
+                    has_ms = any(f.endswith('.MS') for f in file_names)
+                    has_uv = any(f.endswith('.ch') for f in file_names)
+                    st.text(f"MS: {'Yes' if has_ms else 'No'}, UV: {'Yes' if has_uv else 'No'}")
+                except Exception as e:
+                    st.text(f"Error listing: {e}")
 
     # Show uploaded/selected files
     if st.session_state.selected_files:
