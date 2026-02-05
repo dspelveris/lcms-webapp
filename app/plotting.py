@@ -464,8 +464,11 @@ def export_figure_png(fig: matplotlib.figure.Figure, dpi: int = config.EXPORT_DP
 
 def export_figure_svg(fig: matplotlib.figure.Figure) -> bytes:
     """Export figure to SVG bytes with transparent background."""
+    # Make all axes backgrounds transparent
+    for ax in fig.get_axes():
+        ax.set_facecolor('none')
     buf = io.BytesIO()
-    fig.savefig(buf, format='svg', bbox_inches='tight', facecolor='none', edgecolor='none')
+    fig.savefig(buf, format='svg', bbox_inches='tight', facecolor='none', edgecolor='none', transparent=True)
     buf.seek(0)
     return buf.getvalue()
 
