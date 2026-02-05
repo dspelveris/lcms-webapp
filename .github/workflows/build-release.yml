@@ -1,0 +1,152 @@
+name: Build Desktop Apps
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build macOS app
+        run: |
+          pyinstaller \
+            --name=LCMS-Analysis \
+            --onedir \
+            --console \
+            --add-data "app:app" \
+            --copy-metadata streamlit \
+            --copy-metadata altair \
+            --collect-data streamlit \
+            --hidden-import=streamlit \
+            --hidden-import=streamlit.runtime.scriptrunner \
+            --hidden-import=streamlit.runtime.scriptrunner.magic_funcs \
+            --hidden-import=streamlit.web.cli \
+            --hidden-import=rainbow \
+            --hidden-import=scipy.signal \
+            --hidden-import=scipy.integrate \
+            --hidden-import=matplotlib.backends.backend_svg \
+            --hidden-import=matplotlib.backends.backend_pdf \
+            --hidden-import=matplotlib.backends.backend_agg \
+            --exclude-module=torch \
+            --exclude-module=tensorflow \
+            --exclude-module=keras \
+            --exclude-module=IPython \
+            --exclude-module=jupyter \
+            --exclude-module=notebook \
+            --exclude-module=pytest \
+            --noconfirm \
+            launcher.py
+      
+      - name: Create ZIP
+        run: |
+          cd dist
+          zip -r LCMS-Analysis-macOS.zip LCMS-Analysis
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LCMS-Analysis-macOS
+          path: dist/LCMS-Analysis-macOS.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build Windows app
+        run: |
+          pyinstaller `
+            --name=LCMS-Analysis `
+            --onedir `
+            --console `
+            --add-data "app;app" `
+            --copy-metadata streamlit `
+            --copy-metadata altair `
+            --collect-data streamlit `
+            --hidden-import=streamlit `
+            --hidden-import=streamlit.runtime.scriptrunner `
+            --hidden-import=streamlit.runtime.scriptrunner.magic_funcs `
+            --hidden-import=streamlit.web.cli `
+            --hidden-import=rainbow `
+            --hidden-import=scipy.signal `
+            --hidden-import=scipy.integrate `
+            --hidden-import=matplotlib.backends.backend_svg `
+            --hidden-import=matplotlib.backends.backend_pdf `
+            --hidden-import=matplotlib.backends.backend_agg `
+            --exclude-module=torch `
+            --exclude-module=tensorflow `
+            --exclude-module=keras `
+            --exclude-module=IPython `
+            --exclude-module=jupyter `
+            --exclude-module=notebook `
+            --exclude-module=pytest `
+            --noconfirm `
+            launcher.py
+      
+      - name: Create ZIP
+        run: Compress-Archive -Path dist\LCMS-Analysis -DestinationPath dist\LCMS-Analysis-Windows.zip
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LCMS-Analysis-Windows
+          path: dist/LCMS-Analysis-Windows.zip
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: LCMS-Analysis-macOS
+          
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: LCMS-Analysis-Windows
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            LCMS-Analysis-macOS.zip
+            LCMS-Analysis-Windows.zip
+          body: |
+            ## LC-MS Analysis Desktop App
+            
+            Download the ZIP for your platform:
+            - **macOS**: LCMS-Analysis-macOS.zip
+            - **Windows**: LCMS-Analysis-Windows.zip
+            
+            ### Installation
+            1. Extract the ZIP file
+            2. Run `LCMS-Analysis` (macOS) or `LCMS-Analysis.exe` (Windows)
+            3. Your browser will open with the app
+            4. Use "Browse Files" mode to select .D folders directly
