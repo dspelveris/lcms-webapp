@@ -584,11 +584,11 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
     from analysis import sum_spectra_in_range, get_theoretical_mz
 
     style = style or {}
-    fig_width = style.get('fig_width', 14)
+    fig_width = style.get('fig_width', 10)  # Smaller default
     line_width = style.get('line_width', 0.8)
     show_grid = style.get('show_grid', True)
 
-    fig = plt.figure(figsize=(fig_width, 10))
+    fig = plt.figure(figsize=(fig_width, 7))  # Smaller figure
 
     # Create grid: top row for chromatogram, bottom left for spectrum, bottom right for deconv
     gs = fig.add_gridspec(2, 2, height_ratios=[1, 2], hspace=0.3, wspace=0.3)
@@ -644,7 +644,7 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
         # Draw vertical lines (stem plot style)
         for m_kda, intensity in zip(masses_kda, norm_intensities):
             ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color='green', linewidth=1.5)
-            ax_deconv.plot(m_kda, intensity, 'go', markersize=4)  # dot at top
+            ax_deconv.plot(m_kda, intensity, 'go', markersize=3)
 
         # Set x-axis range: min-20% to max+20%
         min_mass = min(masses_kda)
@@ -652,7 +652,37 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
         mass_range = max_mass - min_mass if max_mass > min_mass else max_mass * 0.1
         x_margin = mass_range * 0.2 if mass_range > 0 else max_mass * 0.2
         ax_deconv.set_xlim(min_mass - x_margin, max_mass + x_margin)
-        ax_deconv.set_ylim(0, 110)  # 0-100% with some headroom
+        ax_deconv.set_ylim(0, 120)  # Extra headroom for labels
+
+        # Add mass labels with overlap avoidance
+        # Sort by x position for overlap detection
+        labeled_peaks = sorted(zip(masses_kda, norm_intensities, masses), key=lambda x: x[0])
+        label_positions = []  # Track (x, y) of placed labels
+
+        for m_kda, intensity, mass_da in labeled_peaks:
+            # Default label position
+            label_y = intensity + 3
+            label_x = m_kda
+
+            # Check for overlap with existing labels
+            for prev_x, prev_y in label_positions:
+                x_dist = abs(m_kda - prev_x) / (mass_range + 0.001) * 100  # As % of range
+                y_dist = abs(label_y - prev_y)
+                if x_dist < 15 and y_dist < 10:  # Too close
+                    label_y = prev_y + 12  # Stagger vertically
+
+            label_positions.append((label_x, label_y))
+
+            # Format label: show Da value
+            if mass_da >= 1000:
+                label_text = f"{mass_da:.0f}"
+            else:
+                label_text = f"{mass_da:.1f}"
+
+            ax_deconv.annotate(label_text, (m_kda, intensity),
+                             xytext=(label_x, label_y),
+                             fontsize=6, ha='center', va='bottom',
+                             color='darkgreen')
 
         ax_deconv.set_xlabel("Mass (kDa)")
         ax_deconv.set_ylabel("Relative Intensity (%)")
