@@ -310,7 +310,7 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     if len(scan_indices) == 0:
         return np.array([]), np.array([])
 
-    # If we have a shared m/z axis, use it directly (faster and preserves original resolution)
+    # If we have a shared m/z axis
     if sample.ms_mz_axis is not None:
         mz_axis = sample.ms_mz_axis
         summed_intensities = np.zeros(len(mz_axis))
@@ -318,12 +318,12 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
         for idx in scan_indices:
             scan = sample.ms_scans[idx]
             if scan is not None and isinstance(scan, np.ndarray):
-                if scan.ndim == 1 and len(scan) == len(mz_axis):
-                    summed_intensities += scan
+                summed_intensities += scan
 
         return mz_axis, summed_intensities
 
-    # Otherwise, collect and bin the spectra
+    # Otherwise, need to bin the spectra
+    # Collect all m/z and intensities first
     all_mz = []
     all_int = []
 
@@ -351,11 +351,9 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     if len(all_mz) == 0:
         return np.array([]), np.array([])
 
-    # Bin the data
-    all_mz = np.array(all_mz)
-    all_int = np.array(all_int)
-    mz_min, mz_max = all_mz.min(), all_mz.max()
-    bin_width = 0.1  # 0.1 Da bins for binned data
+    # Bin the data with higher precision
+    mz_min, mz_max = min(all_mz), max(all_mz)
+    bin_width = 0.01  # 0.01 Da bins for better precision
     bins = np.arange(mz_min, mz_max + bin_width, bin_width)
 
     binned_intensity, bin_edges = np.histogram(all_mz, bins=bins, weights=all_int)
@@ -364,7 +362,7 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     return mz_centers, binned_intensity
 
 
-def centroid_peak(mz: np.ndarray, intensity: np.ndarray, peak_idx: int, window: int = 10) -> float:
+def centroid_peak(mz: np.ndarray, intensity: np.ndarray, peak_idx: int, window: int = 3) -> float:
     """
     Calculate centroid m/z for a peak using intensity-weighted average.
 
