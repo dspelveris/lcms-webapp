@@ -826,22 +826,24 @@ def single_sample_analysis(sample, settings):
     left_col, right_col = st.columns(2)
 
     with left_col:
-        # UV Chromatogram
+        # UV Chromatograms - one panel per selected wavelength
         if sample.uv_data is not None:
-            fig_uv, ax_uv = plt.subplots(figsize=(5, 2.5))
-            uv_data = sample.get_uv_at_wavelength(settings['uv_wavelength'])
-            if uv_data is not None:
-                plot_data = smooth_data(uv_data, settings['uv_smoothing'])
-                ax_uv.plot(sample.uv_times, plot_data, linewidth=settings['line_width'])
-                ax_uv.set_xlabel("Time (min)", fontsize=8)
-                ax_uv.set_ylabel(f"UV {settings['uv_wavelength']:.0f}nm (mAU)", fontsize=8)
-                ax_uv.set_title(f"UV Chromatogram ({settings['uv_wavelength']:.0f} nm)", fontsize=9)
-                ax_uv.tick_params(labelsize=7)
-            else:
-                ax_uv.text(0.5, 0.5, "No UV data at this wavelength", ha='center', va='center', transform=ax_uv.transAxes)
-            fig_uv.tight_layout()
-            st.pyplot(fig_uv, width='stretch')
-            plt.close(fig_uv)
+            selected_wavelengths = settings.get('uv_wavelengths') or [settings['uv_wavelength']]
+            for wl in selected_wavelengths:
+                fig_uv, ax_uv = plt.subplots(figsize=(5, 2.5))
+                uv_data = sample.get_uv_at_wavelength(wl)
+                if uv_data is not None:
+                    plot_data = smooth_data(uv_data, settings['uv_smoothing'])
+                    ax_uv.plot(sample.uv_times, plot_data, linewidth=settings['line_width'])
+                    ax_uv.set_xlabel("Time (min)", fontsize=8)
+                    ax_uv.set_ylabel(f"UV {wl:.0f}nm (mAU)", fontsize=8)
+                    ax_uv.set_title(f"UV Chromatogram ({wl:.0f} nm)", fontsize=9)
+                    ax_uv.tick_params(labelsize=7)
+                else:
+                    ax_uv.text(0.5, 0.5, f"No UV data at {wl:.0f} nm", ha='center', va='center', transform=ax_uv.transAxes)
+                fig_uv.tight_layout()
+                st.pyplot(fig_uv, width='stretch')
+                plt.close(fig_uv)
 
         # TIC
         if sample.tic is not None and sample.ms_times is not None:
@@ -876,9 +878,10 @@ def single_sample_analysis(sample, settings):
                 plt.close(fig_eic)
 
     # Combined figure for export
+    selected_wavelengths = settings.get('uv_wavelengths') or [settings['uv_wavelength']]
     fig = create_single_sample_figure(
         sample,
-        uv_wavelength=settings['uv_wavelength'],
+        uv_wavelengths=selected_wavelengths,
         eic_targets=mz_targets,
         style=style,
         mz_window=settings['mz_window'],

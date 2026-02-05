@@ -276,6 +276,7 @@ def create_time_progression_figure(
 def create_single_sample_figure(
     sample: SampleData,
     uv_wavelength: float = config.UV_WAVELENGTH,
+    uv_wavelengths: Optional[list[float]] = None,
     eic_targets: Optional[list[float]] = None,
     style: Optional[dict] = None,
     mz_window: float = config.DEFAULT_MZ_WINDOW,
@@ -287,7 +288,8 @@ def create_single_sample_figure(
 
     Args:
         sample: SampleData object
-        uv_wavelength: UV wavelength to extract
+        uv_wavelength: UV wavelength to extract (deprecated, use uv_wavelengths)
+        uv_wavelengths: List of UV wavelengths to extract
         eic_targets: List of m/z values for EIC extraction
         style: Dictionary with style settings
         mz_window: m/z window for EIC extraction
@@ -319,14 +321,17 @@ def create_single_sample_figure(
 
     # Format label templates
     title = title_template.format(name=sample.name)
-    y_label_uv = y_label_uv_template.format(wavelength=uv_wavelength)
-    panel_title_uv = panel_title_uv_template.format(wavelength=uv_wavelength)
+
+    # Support both single wavelength (legacy) and multiple wavelengths
+    if uv_wavelengths is None or len(uv_wavelengths) == 0:
+        uv_wavelengths = [uv_wavelength]
 
     if eic_targets is None:
         eic_targets = []
 
+    n_uvs = len(uv_wavelengths)
     n_eics = len(eic_targets)
-    n_rows = 2 + n_eics  # UV + TIC + EICs
+    n_rows = n_uvs + 1 + n_eics  # UV panels + TIC + EICs
 
     fig, axes = plt.subplots(n_rows, 1, figsize=(fig_width, fig_height_per_panel * n_rows))
     if n_rows == 1:
@@ -334,24 +339,28 @@ def create_single_sample_figure(
 
     fig.suptitle(title, fontsize=10, fontweight='bold', y=1.005)
 
-    # Panel 1: UV
-    uv_data = sample.get_uv_at_wavelength(uv_wavelength)
-    create_single_panel(
-        axes[0],
-        sample.uv_times, uv_data,
-        xlabel=x_label,
-        ylabel=y_label_uv,
-        color="#1f77b4",
-        smoothing=uv_smoothing,
-        line_width=line_width,
-        show_grid=show_grid,
-        y_scale=y_scale
-    )
-    axes[0].set_title(panel_title_uv)
+    # UV panels - one for each wavelength
+    for i, wl in enumerate(uv_wavelengths):
+        uv_data = sample.get_uv_at_wavelength(wl)
+        y_label_uv = y_label_uv_template.format(wavelength=wl)
+        panel_title_uv = panel_title_uv_template.format(wavelength=wl)
+        create_single_panel(
+            axes[i],
+            sample.uv_times, uv_data,
+            xlabel=x_label,
+            ylabel=y_label_uv,
+            color="#1f77b4",
+            smoothing=uv_smoothing,
+            line_width=line_width,
+            show_grid=show_grid,
+            y_scale=y_scale
+        )
+        axes[i].set_title(panel_title_uv)
 
-    # Panel 2: TIC
+    # TIC panel (after all UV panels)
+    tic_idx = n_uvs
     create_single_panel(
-        axes[1],
+        axes[tic_idx],
         sample.ms_times, sample.tic,
         xlabel=x_label,
         ylabel=y_label_tic,
@@ -361,14 +370,14 @@ def create_single_sample_figure(
         show_grid=show_grid,
         y_scale=y_scale
     )
-    axes[1].set_title(panel_title_tic)
+    axes[tic_idx].set_title(panel_title_tic)
 
-    # Additional panels: EICs
+    # EIC panels
     for j, target_mz in enumerate(eic_targets):
         eic = extract_eic(sample, target_mz, mz_window)
         panel_title_eic = panel_title_eic_template.format(mz=f"{target_mz:.2f}", window=mz_window)
         create_single_panel(
-            axes[2 + j],
+            axes[tic_idx + 1 + j],
             sample.ms_times, eic,
             xlabel=x_label,
             ylabel=y_label_eic,
@@ -378,7 +387,7 @@ def create_single_sample_figure(
             show_grid=show_grid,
             y_scale=y_scale
         )
-        axes[2 + j].set_title(panel_title_eic)
+        axes[tic_idx + 1 + j].set_title(panel_title_eic)
 
     plt.tight_layout()
     return fig
