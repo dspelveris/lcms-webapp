@@ -89,13 +89,34 @@ if __name__ == "__main__":
     print(f"  {DIM}v1.0{RESET}")
     print()
 
-    # Open browser immediately
+    # Wait for server to be ready, then open browser
     import webbrowser
-    import threading
-    def open_browser():
-        time.sleep(1)  # Small delay for server to start
-        webbrowser.open("http://localhost:8501")
-    threading.Thread(target=open_browser, daemon=True).start()
+    import urllib.request
+
+    def wait_and_open_browser():
+        """Wait for server to respond, then open browser."""
+        url = "http://localhost:8501"
+        max_wait = 30  # Maximum seconds to wait
+        start = time.time()
+
+        while time.time() - start < max_wait:
+            try:
+                urllib.request.urlopen(url, timeout=1)
+                # Server is ready - open browser
+                webbrowser.open(url)
+                return
+            except Exception:
+                time.sleep(0.5)
+
+    # Start spinner and browser opener
+    spinner = LoadingSpinner()
+    spinner.start("Starting server")
+
+    def open_when_ready():
+        wait_and_open_browser()
+        spinner.stop()
+
+    threading.Thread(target=open_when_ready, daemon=True).start()
 
     print(f"  {CYAN}http://localhost:8501{RESET}")
     print()
