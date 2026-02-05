@@ -151,7 +151,21 @@ jobs:
             - **Windows**: LCMS-Analysis-Windows.zip
 
             ### Installation
+
+            **Windows:**
             1. Extract the ZIP file
-            2. Run `LCMS-Analysis` (macOS) or `LCMS-Analysis.exe` (Windows)
+            2. Double-click `LCMS-Analysis.exe`
             3. Your browser will open with the app
-            4. Use "Browse Files" mode to select .D folders directly
+
+            **macOS:**
+            1. Extract the ZIP file
+            2. Open Terminal and run:
+               ```
+               xattr -cr ~/Downloads/LCMS-Analysis
+               ```
+            3. Double-click `LCMS-Analysis` or run `./LCMS-Analysis` in Terminal
+            4. Your browser will open with the app
+
+            ### Usage
+            - Use **Browse Files** mode to select .D folders directly (no ZIP needed!)
+            - Supports UV-Vis, TIC, EIC, and protein deconvolution
