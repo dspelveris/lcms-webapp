@@ -2,6 +2,8 @@
 
 import os
 
+APP_VERSION = "1.4.6"
+
 def get_default_path():
     """Get a sensible default path for LC-MS data."""
     # Check environment variable first

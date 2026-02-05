@@ -145,6 +145,9 @@ _loading_placeholder.empty()
 # Custom CSS
 st.markdown("""
 <style>
+    html, body { height: 100%; overflow: auto; }
+    div[data-testid="stAppViewContainer"] { height: 100%; overflow: auto; }
+    div[data-testid="stApp"] { height: 100%; overflow: auto; }
     .stSelectbox label { font-weight: bold; }
     .main .block-container { padding-top: 2rem; }
     div[data-testid="stMetricValue"] { font-size: 1.2rem; }
@@ -1183,6 +1186,8 @@ def deconvolution_analysis(sample, settings):
     if 'deconv_auto_start' not in st.session_state or sample_changed:
         st.session_state.deconv_auto_start = None
         st.session_state.deconv_auto_end = None
+        st.session_state.deconv_autorun_pending = False
+        st.session_state.deconv_last_autorun_sig = None
 
     if sample.tic is not None:
         # Find the main peak in TIC
@@ -1220,11 +1225,13 @@ def deconvolution_analysis(sample, settings):
     if 'deconv_start_val' not in st.session_state:
         if st.session_state.deconv_auto_start is not None:
             st.session_state.deconv_start_val = st.session_state.deconv_auto_start
+            st.session_state.deconv_autorun_pending = True
         else:
             st.session_state.deconv_start_val = min_time
     if 'deconv_end_val' not in st.session_state:
         if st.session_state.deconv_auto_end is not None:
             st.session_state.deconv_end_val = st.session_state.deconv_auto_end
+            st.session_state.deconv_autorun_pending = True
         else:
             st.session_state.deconv_end_val = min(min_time + 1.0, max_time)
 
@@ -1241,6 +1248,7 @@ def deconvolution_analysis(sample, settings):
         st.session_state.deconv_start_val = st.session_state.deconv_auto_start
         st.session_state.deconv_end_val = st.session_state.deconv_auto_end
         st.session_state.deconv_widget_key += 1  # Force widget recreation
+        st.session_state.deconv_autorun_pending = True
         st.rerun()
 
     # Helper to parse time input (accepts comma or period as decimal)
@@ -1410,10 +1418,8 @@ def deconvolution_analysis(sample, settings):
         with col5:
             mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=0.5, step=0.1)
 
-    # Run deconvolution button
-    if st.button("Run Deconvolution", type="primary"):
+    def run_deconvolution():
         with st.spinner("Running deconvolution..."):
-            # Run deconvolution
             results = deconvolute_protein(
                 mz, intensity,
                 min_charge=min_charge,
@@ -1423,12 +1429,30 @@ def deconvolution_analysis(sample, settings):
                 max_peaks=max_peaks
             )
 
-            # Filter results by MW range
             results = [r for r in results if low_mw <= r['mass'] <= high_mw]
-
-            # Store results in session state
             st.session_state.deconv_results = results
             st.session_state.deconv_mw_range = (low_mw, high_mw)
+
+    autorun_sig = (
+        sample.name,
+        round(start_time, 4),
+        round(end_time, 4),
+        low_mw,
+        high_mw,
+        min_charge,
+        max_charge,
+        min_peaks,
+        max_peaks,
+        mass_tolerance
+    )
+    if st.session_state.get('deconv_autorun_pending') and st.session_state.get('deconv_last_autorun_sig') != autorun_sig:
+        run_deconvolution()
+        st.session_state.deconv_last_autorun_sig = autorun_sig
+        st.session_state.deconv_autorun_pending = False
+
+    # Run deconvolution button
+    if st.button("Run Deconvolution", type="primary"):
+        run_deconvolution()
 
     # Display results if available
     if hasattr(st.session_state, 'deconv_results') and st.session_state.deconv_results:
@@ -1524,6 +1548,7 @@ def main():
     init_session_state()
 
     st.title("LC-MS Analysis")
+    st.caption(f"Version {config.APP_VERSION}")
 
     # Check rainbow availability
     if not check_rainbow_available():
