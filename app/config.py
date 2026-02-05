@@ -46,8 +46,8 @@ UV_WAVELENGTH = 280
 UV_SMOOTHING_WINDOW = 36
 EIC_SMOOTHING_WINDOW = 5
 
-# Default m/z values for DS-030 analysis
-DEFAULT_MZ_VALUES = [680.1, 382.98, 243.99, 321.15]
+# Default m/z values (empty by default)
+DEFAULT_MZ_VALUES = []
 
 # Default m/z window for EIC extraction
 DEFAULT_MZ_WINDOW = 0.5

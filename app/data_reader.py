@@ -358,18 +358,38 @@ class SampleData:
                                 self.tic = np.array(tic)
                             break
 
-            # Also check for datafiles attribute (alternative rainbow structure)
+            # Also check for datafiles attribute - collect ALL UV wavelengths
             if hasattr(data, 'datafiles'):
+                extra_uv_data = []
+                extra_uv_wl = []
+                uv_times_from_df = None
+
                 for df in data.datafiles:
                     det_type = getattr(df, 'detector', None) or getattr(df, 'detector_type', '')
+                    df_name = getattr(df, 'name', '')
 
-                    if any(uv in str(det_type).upper() for uv in ['UV', 'DAD', 'PDA', 'MWD']):
-                        if self.uv_data is None:
-                            times, uv_data, wavelengths = self._extract_detector_data(df)
-                            if uv_data is not None:
-                                self.uv_times = np.array(times) if times is not None else None
-                                self.uv_data = np.array(uv_data) if uv_data is not None else None
-                                self.uv_wavelengths = np.array(wavelengths) if wavelengths is not None else None
+                    # Check for UV/MWD files
+                    if any(uv in str(det_type).upper() for uv in ['UV', 'DAD', 'PDA', 'MWD']) or df_name.upper().startswith('MWD'):
+                        times, uv_data, wavelengths = self._extract_detector_data(df)
+                        if uv_data is not None and wavelengths is not None:
+                            uv_arr = np.array(uv_data)
+                            wl_arr = np.array(wavelengths)
+                            if uv_arr.ndim == 1:
+                                uv_arr = uv_arr.reshape(-1, 1)
+                            if wl_arr.ndim == 0:
+                                wl_arr = np.array([float(wl_arr)])
+
+                            # Check if this wavelength is not already in our list
+                            for i, wl in enumerate(wl_arr.tolist()):
+                                wl_str = str(wl)
+                                existing_wls = [str(w) for w in (self.uv_wavelengths.tolist() if self.uv_wavelengths is not None else [])]
+                                existing_wls += [str(w) for w in extra_uv_wl]
+                                if wl_str not in existing_wls:
+                                    extra_uv_data.append(uv_arr[:, i:i+1] if uv_arr.ndim == 2 else uv_arr.reshape(-1, 1))
+                                    extra_uv_wl.append(wl)
+                                    if uv_times_from_df is None and times is not None:
+                                        uv_times_from_df = times
+                            self._debug_info[f'df_uv_{df_name}'] = f"wl={wl_arr.tolist()}"
 
                     elif 'MS' in str(det_type).upper():
                         if self.ms_times is None:
@@ -381,6 +401,21 @@ class SampleData:
                                 if hasattr(df, attr):
                                     self.ms_scans = getattr(df, attr)
                                     break
+
+                # Merge extra UV data if found
+                if extra_uv_data:
+                    if self.uv_data is None:
+                        self.uv_data = np.hstack(extra_uv_data)
+                        self.uv_wavelengths = np.array(extra_uv_wl)
+                        if self.uv_times is None:
+                            self.uv_times = np.array(uv_times_from_df) if uv_times_from_df is not None else None
+                    else:
+                        try:
+                            self.uv_data = np.hstack([self.uv_data] + extra_uv_data)
+                            self.uv_wavelengths = np.array(list(self.uv_wavelengths) + extra_uv_wl)
+                        except Exception as e:
+                            self._debug_info['uv_merge_error'] = str(e)
+                    self._debug_info['extra_uv_wavelengths'] = extra_uv_wl
 
             self._loaded = True
             return True

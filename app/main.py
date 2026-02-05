@@ -754,6 +754,7 @@ def single_sample_analysis(sample, settings):
                     ax_eic.set_ylabel("EIC Intensity", fontsize=8)
                     ax_eic.set_title(f"EIC m/z {mz:.2f} (±{settings['mz_window']})", fontsize=9)
                     ax_eic.tick_params(labelsize=7)
+                    ax_eic.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
                 else:
                     ax_eic.text(0.5, 0.5, f"No data for m/z {mz}", ha='center', va='center', transform=ax_eic.transAxes)
                 fig_eic.tight_layout()
