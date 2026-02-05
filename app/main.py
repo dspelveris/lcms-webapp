@@ -1221,19 +1221,24 @@ def deconvolution_analysis(sample, settings):
         except (ValueError, AttributeError):
             return default
 
+    # Format time without trailing zeros
+    def format_time(val):
+        formatted = f"{val:.3f}".rstrip('0').rstrip('.')
+        return formatted if formatted else "0"
+
     # Text inputs for time (accepts comma as decimal separator)
     col1, col2 = st.columns(2)
     with col1:
         start_text = st.text_input(
             "Start time (min)",
-            value=f"{st.session_state.deconv_start_val:.3f}",
+            value=format_time(st.session_state.deconv_start_val),
             key=f"start_{st.session_state.deconv_start_val:.4f}"
         )
         start_time = parse_time(start_text, st.session_state.deconv_start_val, min_time, max_time)
     with col2:
         end_text = st.text_input(
             "End time (min)",
-            value=f"{st.session_state.deconv_end_val:.3f}",
+            value=format_time(st.session_state.deconv_end_val),
             key=f"end_{st.session_state.deconv_end_val:.4f}"
         )
         end_time = parse_time(end_text, st.session_state.deconv_end_val, min_time, max_time)
