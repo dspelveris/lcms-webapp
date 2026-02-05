@@ -1075,25 +1075,31 @@ def deconvolution_analysis(sample, settings):
         if st.session_state.deconv_auto_start is not None:
             st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        start_time = st.number_input(
-            "Start time (min)",
-            min_value=min_time,
-            max_value=max_time,
-            step=0.01,
-            format="%.3f",
-            key="deconv_start_input"
-        )
-    with col2:
-        end_time = st.number_input(
-            "End time (min)",
-            min_value=min_time,
-            max_value=max_time,
-            step=0.01,
-            format="%.3f",
-            key="deconv_end_input"
-        )
+    # Range slider for time selection (draggable)
+    if 'deconv_range' not in st.session_state:
+        st.session_state.deconv_range = (st.session_state.deconv_start_input, st.session_state.deconv_end_input)
+
+    # Update range from individual inputs if they were modified
+    current_range = st.session_state.deconv_range
+    if st.session_state.deconv_start_input != current_range[0] or st.session_state.deconv_end_input != current_range[1]:
+        st.session_state.deconv_range = (st.session_state.deconv_start_input, st.session_state.deconv_end_input)
+
+    time_range = st.slider(
+        "Select time region (drag to adjust)",
+        min_value=float(min_time),
+        max_value=float(max_time),
+        value=st.session_state.deconv_range,
+        step=0.01,
+        format="%.2f min",
+        key="deconv_slider"
+    )
+
+    start_time, end_time = time_range
+
+    # Sync individual inputs with slider for auto-detect
+    st.session_state.deconv_start_input = start_time
+    st.session_state.deconv_end_input = end_time
+    st.session_state.deconv_range = time_range
 
     # Show TIC with region selector
     if sample.tic is not None:
@@ -1135,15 +1141,15 @@ def deconvolution_analysis(sample, settings):
         fig_ms, ax = plt.subplots(figsize=(14, 5))
         ax.plot(mz_display, intensity_display, 'b-', linewidth=0.8)
 
-        # Add peak labels
+        # Add peak labels with 4 decimal precision
         for peak in top_peaks:
             ax.annotate(
-                f"{peak['mz']:.2f}",
+                f"{peak['mz']:.4f}",
                 xy=(peak['mz'], peak['intensity']),
                 xytext=(0, 5),
                 textcoords='offset points',
                 ha='center',
-                fontsize=8,
+                fontsize=7,
                 rotation=90
             )
 
