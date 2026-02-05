@@ -1075,31 +1075,49 @@ def deconvolution_analysis(sample, settings):
         if st.session_state.deconv_auto_start is not None:
             st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
 
-    # Range slider for time selection (draggable)
-    if 'deconv_range' not in st.session_state:
-        st.session_state.deconv_range = (st.session_state.deconv_start_input, st.session_state.deconv_end_input)
-
-    # Update range from individual inputs if they were modified
-    current_range = st.session_state.deconv_range
-    if st.session_state.deconv_start_input != current_range[0] or st.session_state.deconv_end_input != current_range[1]:
-        st.session_state.deconv_range = (st.session_state.deconv_start_input, st.session_state.deconv_end_input)
-
+    # Draggable range slider
     time_range = st.slider(
-        "Select time region (drag to adjust)",
+        "Drag to select time region",
         min_value=float(min_time),
         max_value=float(max_time),
-        value=st.session_state.deconv_range,
+        value=(st.session_state.deconv_start_input, st.session_state.deconv_end_input),
         step=0.01,
         format="%.2f min",
         key="deconv_slider"
     )
 
-    start_time, end_time = time_range
+    # Sync session state with slider
+    st.session_state.deconv_start_input = time_range[0]
+    st.session_state.deconv_end_input = time_range[1]
 
-    # Sync individual inputs with slider for auto-detect
-    st.session_state.deconv_start_input = start_time
-    st.session_state.deconv_end_input = end_time
-    st.session_state.deconv_range = time_range
+    # Number inputs with +/- buttons for fine adjustment
+    col1, col2 = st.columns(2)
+    with col1:
+        start_time = st.number_input(
+            "Start time (min)",
+            min_value=float(min_time),
+            max_value=float(max_time),
+            value=float(time_range[0]),
+            step=0.01,
+            format="%.3f",
+            key="deconv_start_num"
+        )
+    with col2:
+        end_time = st.number_input(
+            "End time (min)",
+            min_value=float(min_time),
+            max_value=float(max_time),
+            value=float(time_range[1]),
+            step=0.01,
+            format="%.3f",
+            key="deconv_end_num"
+        )
+
+    # Update session state if number inputs changed (for next rerun)
+    if start_time != time_range[0] or end_time != time_range[1]:
+        st.session_state.deconv_start_input = start_time
+        st.session_state.deconv_end_input = end_time
+        st.rerun()
 
     # Show TIC with region selector
     if sample.tic is not None:
