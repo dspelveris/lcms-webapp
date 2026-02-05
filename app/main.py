@@ -1070,7 +1070,7 @@ def deconvolution_analysis(sample, settings):
     if 'deconv_end_input' not in st.session_state:
         st.session_state.deconv_end_input = min(min_time + 1.0, max_time)
 
-    # Auto-detect button
+    # Auto-detect button and time inputs
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         if st.button("Auto-detect main peak", type="secondary"):
@@ -1078,7 +1078,7 @@ def deconvolution_analysis(sample, settings):
                 st.session_state.deconv_start_input = st.session_state.deconv_auto_start
                 st.session_state.deconv_end_input = st.session_state.deconv_auto_end
                 # Clear widget keys to force sync
-                for key in ['deconv_slider', 'deconv_start_num', 'deconv_end_num']:
+                for key in ['deconv_start_num', 'deconv_end_num']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
@@ -1086,29 +1086,14 @@ def deconvolution_analysis(sample, settings):
         if st.session_state.deconv_auto_start is not None:
             st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
 
-    # Get current values from session state
-    current_start = st.session_state.deconv_start_input
-    current_end = st.session_state.deconv_end_input
-
-    # Draggable range slider
-    time_range = st.slider(
-        "Drag to select time region",
-        min_value=float(min_time),
-        max_value=float(max_time),
-        value=(float(current_start), float(current_end)),
-        step=0.01,
-        format="%.2f min",
-        key="deconv_slider"
-    )
-
-    # Number inputs with +/- buttons for fine adjustment
+    # Number inputs with +/- buttons
     col1, col2 = st.columns(2)
     with col1:
         start_time = st.number_input(
             "Start time (min)",
             min_value=float(min_time),
             max_value=float(max_time),
-            value=float(time_range[0]),
+            value=float(st.session_state.deconv_start_input),
             step=0.01,
             format="%.3f",
             key="deconv_start_num"
@@ -1118,26 +1103,15 @@ def deconvolution_analysis(sample, settings):
             "End time (min)",
             min_value=float(min_time),
             max_value=float(max_time),
-            value=float(time_range[1]),
+            value=float(st.session_state.deconv_end_input),
             step=0.01,
             format="%.3f",
             key="deconv_end_num"
         )
 
-    # Sync all controls - update session state with latest values
-    # Priority: number inputs > slider > session state
-    if start_time != time_range[0] or end_time != time_range[1]:
-        # Number inputs were changed
-        st.session_state.deconv_start_input = start_time
-        st.session_state.deconv_end_input = end_time
-        if 'deconv_slider' in st.session_state:
-            del st.session_state['deconv_slider']
-        st.rerun()
-    else:
-        # Slider was changed or no change
-        st.session_state.deconv_start_input = time_range[0]
-        st.session_state.deconv_end_input = time_range[1]
-        start_time, end_time = time_range
+    # Update session state
+    st.session_state.deconv_start_input = start_time
+    st.session_state.deconv_end_input = end_time
 
     # Show TIC with region selector
     if sample.tic is not None:
