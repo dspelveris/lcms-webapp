@@ -1240,12 +1240,13 @@ def deconvolution_analysis(sample, settings):
     mz, intensity = sum_spectra_in_range(sample, start_time, end_time)
 
     if len(mz) > 0:
-        # m/z range filter
+        # m/z range filter (dynamic keys to update when time range changes)
+        range_key = f"{start_time:.3f}_{end_time:.3f}"
         col1, col2 = st.columns(2)
         with col1:
-            mz_min_display = st.number_input("Display m/z min", value=float(mz[0]), step=10.0, key="mz_min")
+            mz_min_display = st.number_input("Display m/z min", value=float(mz[0]), step=10.0, key=f"mz_min_{range_key}")
         with col2:
-            mz_max_display = st.number_input("Display m/z max", value=float(mz[-1]), step=10.0, key="mz_max")
+            mz_max_display = st.number_input("Display m/z max", value=float(mz[-1]), step=10.0, key=f"mz_max_{range_key}")
 
         # Filter for display
         display_mask = (mz >= mz_min_display) & (mz <= mz_max_display)
