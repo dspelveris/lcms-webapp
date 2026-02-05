@@ -1171,53 +1171,51 @@ def deconvolution_analysis(sample, settings):
             st.session_state.deconv_auto_start = auto_start
             st.session_state.deconv_auto_end = auto_end
 
-    # Initialize widget keys in session state if not present
-    if 'deconv_start_input' not in st.session_state:
-        st.session_state.deconv_start_input = min_time
-    if 'deconv_end_input' not in st.session_state:
-        st.session_state.deconv_end_input = min(min_time + 1.0, max_time)
+    # Initialize time values in session state
+    if 'deconv_start_val' not in st.session_state:
+        st.session_state.deconv_start_val = min_time
+    if 'deconv_end_val' not in st.session_state:
+        st.session_state.deconv_end_val = min(min_time + 1.0, max_time)
 
-    # Auto-detect button and time inputs
+    # Auto-detect button
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
-        if st.button("Auto-detect main peak", type="secondary"):
-            if st.session_state.deconv_auto_start is not None:
-                # Set both the internal state AND the widget keys directly
-                st.session_state.deconv_start_input = st.session_state.deconv_auto_start
-                st.session_state.deconv_end_input = st.session_state.deconv_auto_end
-                st.session_state.deconv_start_num = st.session_state.deconv_auto_start
-                st.session_state.deconv_end_num = st.session_state.deconv_auto_end
-                st.rerun()
+        auto_detect_clicked = st.button("Auto-detect main peak", type="secondary")
     with col2:
         if st.session_state.deconv_auto_start is not None:
             st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
 
-    # Number inputs with +/- buttons
+    # Apply auto-detect values if button was clicked
+    if auto_detect_clicked and st.session_state.deconv_auto_start is not None:
+        st.session_state.deconv_start_val = st.session_state.deconv_auto_start
+        st.session_state.deconv_end_val = st.session_state.deconv_auto_end
+
+    # Number inputs with +/- buttons (use session state values directly)
     col1, col2 = st.columns(2)
     with col1:
         start_time = st.number_input(
             "Start time (min)",
             min_value=float(min_time),
             max_value=float(max_time),
-            value=float(st.session_state.deconv_start_input),
+            value=float(st.session_state.deconv_start_val),
             step=0.01,
             format="%.3f",
-            key="deconv_start_num"
+            key=f"start_{st.session_state.deconv_start_val:.4f}"
         )
     with col2:
         end_time = st.number_input(
             "End time (min)",
             min_value=float(min_time),
             max_value=float(max_time),
-            value=float(st.session_state.deconv_end_input),
+            value=float(st.session_state.deconv_end_val),
             step=0.01,
             format="%.3f",
-            key="deconv_end_num"
+            key=f"end_{st.session_state.deconv_end_val:.4f}"
         )
 
-    # Update session state from widget values
-    st.session_state.deconv_start_input = start_time
-    st.session_state.deconv_end_input = end_time
+    # Update session state from current widget values
+    st.session_state.deconv_start_val = start_time
+    st.session_state.deconv_end_val = end_time
 
     # Show TIC with region selector
     if sample.tic is not None:
