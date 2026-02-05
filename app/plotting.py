@@ -441,7 +441,7 @@ def create_eic_comparison_figure(
 
 def export_figure(fig: matplotlib.figure.Figure, dpi: int = config.EXPORT_DPI, format: str = 'png') -> bytes:
     """
-    Export figure to bytes in specified format.
+    Export figure to bytes in specified format with transparent background.
 
     Args:
         fig: Matplotlib Figure object
@@ -451,8 +451,11 @@ def export_figure(fig: matplotlib.figure.Figure, dpi: int = config.EXPORT_DPI, f
     Returns:
         Image/document as bytes
     """
+    # Make all axes backgrounds transparent
+    for ax in fig.get_axes():
+        ax.set_facecolor('none')
     buf = io.BytesIO()
-    fig.savefig(buf, format=format, dpi=dpi, bbox_inches='tight', facecolor='white')
+    fig.savefig(buf, format=format, dpi=dpi, bbox_inches='tight', facecolor='none', edgecolor='none', transparent=True)
     buf.seek(0)
     return buf.getvalue()
 
