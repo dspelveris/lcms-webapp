@@ -468,6 +468,18 @@ def get_folder_contents(path: str) -> tuple[list[dict], list[dict]]:
     return subfolders, d_folders
 
 
+def get_windows_drives() -> list[str]:
+    """Return a list of available Windows drive roots (e.g., C:\\, D:\\)."""
+    if os.name != "nt":
+        return []
+    drives: list[str] = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        drive = f"{letter}:\\"
+        if os.path.exists(drive):
+            drives.append(drive)
+    return drives
+
+
 def sidebar_file_browser():
     """Render the interactive file browser in the sidebar."""
 
@@ -475,13 +487,32 @@ def sidebar_file_browser():
 
     # File browser in collapsible expander
     with st.sidebar.expander("File Browser", expanded=len(st.session_state.selected_files) == 0):
-        # Show current path
-        st.text_input(
-            "Current Path",
-            value=current_path,
-            key="path_display",
-            disabled=True
-        )
+        # Path input + Go button
+        path_col, go_col = st.columns([4, 1])
+        with path_col:
+            new_path = st.text_input(
+                "Current Path",
+                value=current_path,
+                key="path_display",
+            )
+        with go_col:
+            if st.button("Go", width='stretch'):
+                if new_path and Path(new_path).exists():
+                    st.session_state.current_path = new_path
+                    st.rerun()
+                else:
+                    st.warning(f"Path not found: {new_path}")
+
+        # Quick drive buttons on Windows
+        drives = get_windows_drives()
+        if drives:
+            st.caption("Drives")
+            drive_cols = st.columns(min(len(drives), 4))
+            for i, drive in enumerate(drives):
+                with drive_cols[i % len(drive_cols)]:
+                    if st.button(drive, key=f"drive_{drive}", width='stretch'):
+                        st.session_state.current_path = drive
+                        st.rerun()
 
         # Navigation buttons
         col1, col2 = st.columns(2)
@@ -499,11 +530,6 @@ def sidebar_file_browser():
         if not Path(current_path).exists():
             st.warning(f"Path not found: {current_path}")
             st.info("Make sure the network drive is mounted.")
-            if st.button("Set custom path"):
-                new_path = st.text_input("Enter path:", value="/")
-                if new_path and Path(new_path).exists():
-                    st.session_state.current_path = new_path
-                    st.rerun()
             return []
 
         # Get contents

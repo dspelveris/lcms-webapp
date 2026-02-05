@@ -9,6 +9,13 @@ def get_default_path():
     if env_path and os.path.exists(env_path):
         return env_path
 
+    # Windows: prefer the first available local drive
+    if os.name == "nt":
+        for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+            drive = f"{letter}:\\"
+            if os.path.exists(drive) and os.path.isdir(drive):
+                return drive
+
     # Priority 1: Check for known LC-MS network drives (macOS)
     lcms_drives = [
         "/Volumes/nas22",
