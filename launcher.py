@@ -89,26 +89,16 @@ if __name__ == "__main__":
     print(f"  {DIM}v1.0{RESET}")
     print()
 
-    spinner = LoadingSpinner()
+    # Open browser immediately
+    import webbrowser
+    import threading
+    def open_browser():
+        time.sleep(1)  # Small delay for server to start
+        webbrowser.open("http://localhost:8501")
+    threading.Thread(target=open_browser, daemon=True).start()
 
-    # Pre-load heavy libraries with spinner + timer
-    spinner.start("Loading")
-    import numpy
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import scipy
-    import streamlit
-    spinner.stop()
-
-    print()
-    print(f"  {GREEN}Ready!{RESET} Opening browser...")
     print(f"  {CYAN}http://localhost:8501{RESET}")
     print()
-
-    # Auto-open browser
-    import webbrowser
-    webbrowser.open("http://localhost:8501")
 
     # Run streamlit directly (not via subprocess)
     sys.argv = [
