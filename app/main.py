@@ -1262,7 +1262,7 @@ def deconvolution_analysis(sample, settings):
         plt.close(fig_tic)
 
     # Always show mass spectrum for selected region
-    st.subheader(f"Mass Spectrum ({start_time:.2f} - {end_time:.2f} min)")
+    st.subheader(f"Mass Spectrum ({format_time(start_time)} - {format_time(end_time)} min)")
 
     mz, intensity = sum_spectra_in_range(sample, start_time, end_time)
 
@@ -1302,7 +1302,7 @@ def deconvolution_analysis(sample, settings):
 
         ax.set_xlabel("m/z")
         ax.set_ylabel("Intensity")
-        ax.set_title(f"Summed Mass Spectrum ({start_time:.2f} - {end_time:.2f} min)")
+        ax.set_title(f"Summed Mass Spectrum ({format_time(start_time)} - {format_time(end_time)} min)")
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(mz_min_display, mz_max_display)
