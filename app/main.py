@@ -70,7 +70,7 @@ def init_session_state():
         st.session_state.loaded_samples = {}
     if 'mz_targets' not in st.session_state:
         st.session_state.mz_targets = config.DEFAULT_MZ_VALUES.copy()
-    if 'current_path' not in st.session_state:
+    if 'current_path' not in st.session_state or not os.path.exists(st.session_state.current_path):
         st.session_state.current_path = config.BASE_PATH
     if 'uploaded_files_dir' not in st.session_state:
         st.session_state.uploaded_files_dir = None

@@ -9,10 +9,14 @@ def get_default_path():
     if env_path and os.path.exists(env_path):
         return env_path
 
-    # Priority 1: Check for the LC-MS network drive (macOS)
-    lcms_drive = "/Volumes/chab_loc_lang_s1"
-    if os.path.exists(lcms_drive) and os.path.isdir(lcms_drive):
-        return lcms_drive
+    # Priority 1: Check for known LC-MS network drives (macOS)
+    lcms_drives = [
+        "/Volumes/nas22",
+        "/Volumes/chab_loc_lang_s1",
+    ]
+    for drive in lcms_drives:
+        if os.path.exists(drive) and os.path.isdir(drive):
+            return drive
 
     # Priority 2: Check /Volumes for any mounted drives (macOS)
     if os.path.exists("/Volumes"):
