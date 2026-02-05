@@ -1137,8 +1137,21 @@ def deconvolution_analysis(sample, settings):
     min_time = float(sample.ms_times[0])
     max_time = float(sample.ms_times[-1])
 
+    # Track which sample we're working with - reset values if sample changed
+    if 'deconv_current_sample' not in st.session_state:
+        st.session_state.deconv_current_sample = None
+
+    sample_changed = st.session_state.deconv_current_sample != sample.name
+    if sample_changed:
+        st.session_state.deconv_current_sample = sample.name
+        # Reset time values to be re-initialized with auto-detect
+        if 'deconv_start_val' in st.session_state:
+            del st.session_state.deconv_start_val
+        if 'deconv_end_val' in st.session_state:
+            del st.session_state.deconv_end_val
+
     # Auto-detect main peak
-    if 'deconv_auto_start' not in st.session_state:
+    if 'deconv_auto_start' not in st.session_state or sample_changed:
         st.session_state.deconv_auto_start = None
         st.session_state.deconv_auto_end = None
 
@@ -1174,11 +1187,17 @@ def deconvolution_analysis(sample, settings):
             st.session_state.deconv_auto_start = auto_start
             st.session_state.deconv_auto_end = auto_end
 
-    # Initialize time values in session state
+    # Initialize time values in session state - use auto-detected values if available
     if 'deconv_start_val' not in st.session_state:
-        st.session_state.deconv_start_val = min_time
+        if st.session_state.deconv_auto_start is not None:
+            st.session_state.deconv_start_val = st.session_state.deconv_auto_start
+        else:
+            st.session_state.deconv_start_val = min_time
     if 'deconv_end_val' not in st.session_state:
-        st.session_state.deconv_end_val = min(min_time + 1.0, max_time)
+        if st.session_state.deconv_auto_end is not None:
+            st.session_state.deconv_end_val = st.session_state.deconv_auto_end
+        else:
+            st.session_state.deconv_end_val = min(min_time + 1.0, max_time)
 
     # Auto-detect button
     col1, col2, col3 = st.columns([1, 1, 2])
