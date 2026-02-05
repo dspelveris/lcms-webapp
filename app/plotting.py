@@ -634,11 +634,10 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
             ax_spec.grid(True, alpha=0.3)
         ax_spec.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
 
-        # Add peak labels
+        # Add peak labels (only significant peaks > 20% of max)
         from analysis import find_spectrum_peaks
-        peaks = find_spectrum_peaks(mz, intensity, height_threshold=0.05, min_distance=3, use_centroid=True)
-        top_peaks = peaks[:10]  # Label top 10 peaks
-        for peak in top_peaks:
+        peaks = find_spectrum_peaks(mz, intensity, height_threshold=0.2, min_distance=5, use_centroid=True)
+        for peak in peaks:
             ax_spec.annotate(
                 f"{peak['mz']:.0f}",
                 xy=(peak['mz'], peak['intensity']),
