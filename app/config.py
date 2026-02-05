@@ -2,8 +2,30 @@
 
 import os
 
-# Base path for LC-MS data (mounted network drive)
-BASE_PATH = os.environ.get("LCMS_BASE_PATH", "/data/lcms")
+def get_default_path():
+    """Get a sensible default path for LC-MS data."""
+    # Check environment variable first
+    env_path = os.environ.get("LCMS_BASE_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    # Common LC-MS data locations
+    candidates = [
+        "/Volumes/chab_loc_lang_s1",  # macOS network drive
+        os.path.expanduser("~/Documents"),  # User documents
+        os.path.expanduser("~"),  # Home directory
+        "/data/lcms",  # Docker default
+        "C:\\",  # Windows root
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+
+    return os.path.expanduser("~")  # Fallback to home
+
+# Base path for LC-MS data
+BASE_PATH = get_default_path()
 
 # UV wavelength to display (nm)
 UV_WAVELENGTH = 280
