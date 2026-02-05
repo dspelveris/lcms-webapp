@@ -10,89 +10,117 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Minimal imports needed for loading screen
+from pathlib import Path
+import os
+
 # ETH Zurich blue color
 ETH_BLUE = "#215CAF"
 
-# Loading overlay - show immediately before heavy imports
-_loading_placeholder = st.empty()
-
-# Check if this is first run (matplotlib not yet loaded)
-if 'app_initialized' not in st.session_state:
-    _loading_placeholder.markdown(f"""
-    <style>
-        .loading-overlay {{
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: white;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 999999;
-        }}
-        .spinner {{
-            width: 60px;
-            height: 60px;
-            position: relative;
-            animation: spinner-rotate 1.2s linear infinite;
-        }}
-        .spinner-dot {{
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background: {ETH_BLUE};
-            border-radius: 50%;
-            animation: spinner-fade 1.2s linear infinite;
-        }}
-        .spinner-dot:nth-child(1) {{ top: 0; left: 25px; animation-delay: 0s; }}
-        .spinner-dot:nth-child(2) {{ top: 7px; left: 43px; animation-delay: -0.15s; }}
-        .spinner-dot:nth-child(3) {{ top: 25px; left: 50px; animation-delay: -0.3s; }}
-        .spinner-dot:nth-child(4) {{ top: 43px; left: 43px; animation-delay: -0.45s; }}
-        .spinner-dot:nth-child(5) {{ top: 50px; left: 25px; animation-delay: -0.6s; }}
-        .spinner-dot:nth-child(6) {{ top: 43px; left: 7px; animation-delay: -0.75s; }}
-        .spinner-dot:nth-child(7) {{ top: 25px; left: 0; animation-delay: -0.9s; }}
-        .spinner-dot:nth-child(8) {{ top: 7px; left: 7px; animation-delay: -1.05s; }}
-        @keyframes spinner-rotate {{
-            100% {{ transform: rotate(360deg); }}
-        }}
-        @keyframes spinner-fade {{
-            0%, 100% {{ opacity: 0.2; transform: scale(0.8); }}
-            50% {{ opacity: 1; transform: scale(1); }}
-        }}
-        .loading-text {{
-            margin-top: 24px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 16px;
-            color: #333;
-        }}
-    </style>
-    <div class="loading-overlay">
-        <div class="spinner">
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-            <div class="spinner-dot"></div>
-        </div>
-        <div class="loading-text">Please wait...</div>
+# Loading overlay CSS/HTML
+LOADING_OVERLAY = f"""
+<style>
+    .loading-overlay {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: white;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 999999;
+    }}
+    .spinner {{
+        width: 60px;
+        height: 60px;
+        position: relative;
+        animation: spinner-rotate 1.2s linear infinite;
+    }}
+    .spinner-dot {{
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background: {ETH_BLUE};
+        border-radius: 50%;
+        animation: spinner-fade 1.2s linear infinite;
+    }}
+    .spinner-dot:nth-child(1) {{ top: 0; left: 25px; animation-delay: 0s; }}
+    .spinner-dot:nth-child(2) {{ top: 7px; left: 43px; animation-delay: -0.15s; }}
+    .spinner-dot:nth-child(3) {{ top: 25px; left: 50px; animation-delay: -0.3s; }}
+    .spinner-dot:nth-child(4) {{ top: 43px; left: 43px; animation-delay: -0.45s; }}
+    .spinner-dot:nth-child(5) {{ top: 50px; left: 25px; animation-delay: -0.6s; }}
+    .spinner-dot:nth-child(6) {{ top: 43px; left: 7px; animation-delay: -0.75s; }}
+    .spinner-dot:nth-child(7) {{ top: 25px; left: 0; animation-delay: -0.9s; }}
+    .spinner-dot:nth-child(8) {{ top: 7px; left: 7px; animation-delay: -1.05s; }}
+    @keyframes spinner-rotate {{
+        100% {{ transform: rotate(360deg); }}
+    }}
+    @keyframes spinner-fade {{
+        0%, 100% {{ opacity: 0.2; transform: scale(0.8); }}
+        50% {{ opacity: 1; transform: scale(1); }}
+    }}
+    .loading-text {{
+        margin-top: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 16px;
+        color: #333;
+    }}
+</style>
+<div class="loading-overlay">
+    <div class="spinner">
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
     </div>
-    """, unsafe_allow_html=True)
+    <div class="loading-text">Please wait...</div>
+</div>
+"""
 
-# Now import heavy modules (matplotlib, etc.)
+# Show loading overlay immediately
+_loading_placeholder = st.empty()
+_loading_placeholder.markdown(LOADING_OVERLAY, unsafe_allow_html=True)
+
+
+# Lazy load heavy modules using cache_resource
+@st.cache_resource(show_spinner=False)
+def _init_heavy_modules():
+    """Initialize heavy modules once per process."""
+    import pandas
+    import numpy
+    import matplotlib.pyplot as plt
+    import matplotlib
+    # Pre-configure matplotlib
+    matplotlib.use('Agg')
+    plt.rcParams.update({
+        'font.size': 8,
+        'axes.titlesize': 9,
+        'axes.labelsize': 8,
+        'xtick.labelsize': 7,
+        'ytick.labelsize': 7,
+        'legend.fontsize': 7,
+        'figure.titlesize': 10
+    })
+    return True
+
+
+# Initialize heavy modules (cached - only slow on first run)
+_init_heavy_modules()
+
+# Now import everything (will be fast since modules are already loaded)
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
 import zipfile
 import tempfile
 import shutil
-import os
 
 import config
 from data_reader import list_d_folders_cached, read_sample_cached, check_rainbow_available
@@ -111,8 +139,7 @@ from plotting import (
     export_figure_pdf
 )
 
-# Mark as initialized and clear loading overlay
-st.session_state.app_initialized = True
+# Clear loading overlay
 _loading_placeholder.empty()
 
 # Custom CSS
