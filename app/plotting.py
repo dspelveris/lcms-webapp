@@ -463,8 +463,11 @@ def export_figure_png(fig: matplotlib.figure.Figure, dpi: int = config.EXPORT_DP
 
 
 def export_figure_svg(fig: matplotlib.figure.Figure) -> bytes:
-    """Export figure to SVG bytes."""
-    return export_figure(fig, format='svg')
+    """Export figure to SVG bytes with transparent background."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='svg', bbox_inches='tight', facecolor='none', edgecolor='none')
+    buf.seek(0)
+    return buf.getvalue()
 
 
 def export_figure_pdf(fig: matplotlib.figure.Figure, dpi: int = config.EXPORT_DPI) -> bytes:
