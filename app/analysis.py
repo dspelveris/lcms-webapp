@@ -356,7 +356,7 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     all_mz = np.array(all_mz)
     all_int = np.array(all_int)
     mz_min, mz_max = all_mz.min(), all_mz.max()
-    bin_width = 0.01  # 0.01 Da bins for better precision
+    bin_width = 0.001  # 0.001 Da bins for high precision (4 decimal places)
     bins = np.arange(mz_min, mz_max + bin_width, bin_width)
 
     binned_intensity, bin_edges = np.histogram(all_mz, bins=bins, weights=all_int)
@@ -365,7 +365,7 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     return mz_centers, binned_intensity
 
 
-def centroid_peak(mz: np.ndarray, intensity: np.ndarray, peak_idx: int, window: int = 10) -> float:
+def centroid_peak(mz: np.ndarray, intensity: np.ndarray, peak_idx: int, window: int = 50) -> float:
     """
     Calculate centroid m/z for a peak using intensity-weighted average.
 

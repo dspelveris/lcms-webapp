@@ -1278,7 +1278,38 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(mz_min_display, mz_max_display)
+        plt.tight_layout()
         st.pyplot(fig_ms, width='stretch')
+
+        # Export buttons for summed mass spectrum
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            png_data = export_figure(fig_ms, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PNG",
+                data=png_data,
+                file_name=f"{sample.name}_mass_spectrum.png",
+                mime="image/png",
+                key="ms_png"
+            )
+        with col2:
+            svg_data = export_figure_svg(fig_ms)
+            st.download_button(
+                label="Download SVG",
+                data=svg_data,
+                file_name=f"{sample.name}_mass_spectrum.svg",
+                mime="image/svg+xml",
+                key="ms_svg"
+            )
+        with col3:
+            pdf_data = export_figure_pdf(fig_ms, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PDF",
+                data=pdf_data,
+                file_name=f"{sample.name}_mass_spectrum.pdf",
+                mime="application/pdf",
+                key="ms_pdf"
+            )
         plt.close(fig_ms)
 
         # Store spectrum in session state for deconvolution
