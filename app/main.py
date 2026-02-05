@@ -1279,6 +1279,9 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(mz_min_display, mz_max_display)
+        # Add headroom for labels (20% extra at top)
+        y_max = intensity_display.max() if len(intensity_display) > 0 else 1
+        ax.set_ylim(0, y_max * 1.2)
         plt.tight_layout()
         st.pyplot(fig_ms, width='stretch')
 
