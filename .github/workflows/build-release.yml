@@ -51,6 +51,10 @@ jobs:
             --exclude-module=pytest \
             --noconfirm \
             launcher.py
+
+      - name: Remove AppleDouble files (macOS)
+        run: |
+          find dist/LCMS-Analysis -name '._*' -delete
       
       - name: Create ZIP
         run: |
@@ -107,6 +111,10 @@ jobs:
             --exclude-module=pytest `
             --noconfirm `
             launcher.py
+
+      - name: Remove AppleDouble files (Windows)
+        run: |
+          Get-ChildItem -Path dist\LCMS-Analysis -Recurse -Force -Filter '._*' | Remove-Item -Force
       
       - name: Create ZIP
         run: Compress-Archive -Path dist\LCMS-Analysis -DestinationPath dist\LCMS-Analysis-Windows.zip
