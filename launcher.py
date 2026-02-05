@@ -6,24 +6,44 @@ import time
 import threading
 
 class LoadingSpinner:
-    """Display a spinning animation with timer during loading."""
+    """Display a colorful spinning animation with timer during loading."""
+
+    # ANSI color codes
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    MAGENTA = "\033[95m"
+    BLUE = "\033[94m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+
     def __init__(self):
         self.running = False
         self.start_time = None
         self.thread = None
         self.message = "Loading"
-        # Spinning circle animation frames
-        self.frames = ["◐", "◓", "◑", "◒"]
+        # Colorful spinning animation
+        self.frames = [
+            f"{self.CYAN}⣾{self.RESET}",
+            f"{self.CYAN}⣽{self.RESET}",
+            f"{self.BLUE}⣻{self.RESET}",
+            f"{self.BLUE}⢿{self.RESET}",
+            f"{self.MAGENTA}⡿{self.RESET}",
+            f"{self.MAGENTA}⣟{self.RESET}",
+            f"{self.CYAN}⣯{self.RESET}",
+            f"{self.CYAN}⣷{self.RESET}",
+        ]
 
     def _update(self):
         frame_idx = 0
         while self.running:
             elapsed = time.time() - self.start_time
             spinner = self.frames[frame_idx % len(self.frames)]
-            print(f"\r  {spinner} {self.message}  {elapsed:.1f}s", end="  ")
+            timer = f"{self.YELLOW}{elapsed:.1f}s{self.RESET}"
+            print(f"\r  {spinner} {self.message}  {timer}", end="    ")
             sys.stdout.flush()
             frame_idx += 1
-            time.sleep(0.15)
+            time.sleep(0.1)
 
     def start(self, message="Loading"):
         self.message = message
@@ -37,7 +57,9 @@ class LoadingSpinner:
         if self.thread:
             self.thread.join(timeout=0.2)
         elapsed = time.time() - self.start_time
-        print(f"\r  ✓ {self.message}  {elapsed:.1f}s   ")
+        check = f"{self.GREEN}✓{self.RESET}"
+        timer = f"{self.GREEN}{elapsed:.1f}s{self.RESET}"
+        print(f"\r  {check} {self.message}  {timer}    ")
 
 # Required for PyInstaller multiprocessing
 if __name__ == "__main__":
@@ -55,9 +77,17 @@ if __name__ == "__main__":
     # Change to app directory
     os.chdir(os.path.dirname(app_path))
 
+    # Colors
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
     print()
-    print("  LC-MS Analysis")
-    print("  ─────────────────────────")
+    print(f"  {BOLD}{CYAN}LC-MS Analysis{RESET}")
+    print(f"  {DIM}v1.0{RESET}")
+    print()
 
     spinner = LoadingSpinner()
 
@@ -72,8 +102,8 @@ if __name__ == "__main__":
     spinner.stop()
 
     print()
-    print(f"  URL: http://localhost:8501")
-    print("  ─────────────────────────")
+    print(f"  {GREEN}Ready!{RESET} Open in browser:")
+    print(f"  {CYAN}http://localhost:8501{RESET}")
     print()
 
     # Run streamlit directly (not via subprocess)
