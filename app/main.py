@@ -1190,30 +1190,33 @@ def deconvolution_analysis(sample, settings):
         st.session_state.deconv_start_val = st.session_state.deconv_auto_start
         st.session_state.deconv_end_val = st.session_state.deconv_auto_end
 
-    # Number inputs with +/- buttons (use session state values directly)
+    # Helper to parse time input (accepts comma or period as decimal)
+    def parse_time(text, default, min_val, max_val):
+        try:
+            # Replace comma with period for European format
+            val = float(text.replace(',', '.'))
+            return max(min_val, min(max_val, val))
+        except (ValueError, AttributeError):
+            return default
+
+    # Text inputs for time (accepts comma as decimal separator)
     col1, col2 = st.columns(2)
     with col1:
-        start_time = st.number_input(
+        start_text = st.text_input(
             "Start time (min)",
-            min_value=float(min_time),
-            max_value=float(max_time),
-            value=float(st.session_state.deconv_start_val),
-            step=0.01,
-            format="%.3f",
+            value=f"{st.session_state.deconv_start_val:.3f}",
             key=f"start_{st.session_state.deconv_start_val:.4f}"
         )
+        start_time = parse_time(start_text, st.session_state.deconv_start_val, min_time, max_time)
     with col2:
-        end_time = st.number_input(
+        end_text = st.text_input(
             "End time (min)",
-            min_value=float(min_time),
-            max_value=float(max_time),
-            value=float(st.session_state.deconv_end_val),
-            step=0.01,
-            format="%.3f",
+            value=f"{st.session_state.deconv_end_val:.3f}",
             key=f"end_{st.session_state.deconv_end_val:.4f}"
         )
+        end_time = parse_time(end_text, st.session_state.deconv_end_val, min_time, max_time)
 
-    # Update session state from current widget values
+    # Update session state from parsed values
     st.session_state.deconv_start_val = start_time
     st.session_state.deconv_end_val = end_time
 
