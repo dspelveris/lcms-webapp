@@ -145,9 +145,12 @@ _loading_placeholder.empty()
 # Custom CSS
 st.markdown("""
 <style>
-    html, body { height: 100%; overflow: auto; }
-    div[data-testid="stAppViewContainer"] { height: 100%; overflow: auto; }
-    div[data-testid="stApp"] { height: 100%; overflow: auto; }
+    html, body { height: 100%; overflow: auto !important; }
+    body { position: relative; }
+    div[data-testid="stAppViewContainer"] { height: 100%; overflow: auto !important; }
+    div[data-testid="stApp"] { height: 100%; overflow: auto !important; }
+    section[data-testid="stSidebar"] { overflow: auto !important; }
+    .main .block-container { overflow: visible !important; }
     .stSelectbox label { font-weight: bold; }
     .main .block-container { padding-top: 2rem; }
     div[data-testid="stMetricValue"] { font-size: 1.2rem; }
