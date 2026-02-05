@@ -379,12 +379,12 @@ def sidebar_file_browser():
         # Navigation buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("↑ Up", use_container_width=True):
+            if st.button("↑ Up", width='stretch'):
                 parent = str(Path(current_path).parent)
                 st.session_state.current_path = parent
                 st.rerun()
         with col2:
-            if st.button("⌂ Home", use_container_width=True):
+            if st.button("⌂ Home", width='stretch'):
                 st.session_state.current_path = config.BASE_PATH
                 st.rerun()
 
@@ -406,7 +406,7 @@ def sidebar_file_browser():
         if subfolders:
             st.caption("Folders")
             for folder in subfolders:
-                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", use_container_width=True):
+                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", width='stretch'):
                     st.session_state.current_path = folder['path']
                     st.rerun()
 
@@ -450,7 +450,7 @@ def sidebar_file_browser():
                         st.session_state.selected_files.remove(path)
                         st.rerun()
 
-            if st.button("Clear all", use_container_width=True):
+            if st.button("Clear all", width='stretch'):
                 st.session_state.selected_files = []
                 st.rerun()
 
@@ -726,7 +726,7 @@ def single_sample_analysis(sample, settings):
             else:
                 ax_uv.text(0.5, 0.5, "No UV data at this wavelength", ha='center', va='center', transform=ax_uv.transAxes)
             fig_uv.tight_layout()
-            st.pyplot(fig_uv, use_container_width=True)
+            st.pyplot(fig_uv, width='stretch')
             plt.close(fig_uv)
 
         # TIC
@@ -738,7 +738,7 @@ def single_sample_analysis(sample, settings):
             ax_tic.set_title("Total Ion Chromatogram (TIC)", fontsize=9)
             ax_tic.tick_params(labelsize=7)
             fig_tic.tight_layout()
-            st.pyplot(fig_tic, use_container_width=True)
+            st.pyplot(fig_tic, width='stretch')
             plt.close(fig_tic)
 
     with right_col:
@@ -757,7 +757,7 @@ def single_sample_analysis(sample, settings):
                 else:
                     ax_eic.text(0.5, 0.5, f"No data for m/z {mz}", ha='center', va='center', transform=ax_eic.transAxes)
                 fig_eic.tight_layout()
-                st.pyplot(fig_eic, use_container_width=True)
+                st.pyplot(fig_eic, width='stretch')
                 plt.close(fig_eic)
 
     # Combined figure for export
@@ -886,7 +886,7 @@ def time_progression_analysis(samples: list, settings):
     )
 
     # Display
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width='stretch')
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -947,7 +947,7 @@ def eic_batch_analysis(sample, settings):
         overlay=overlay
     )
 
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width='stretch')
 
     # Peak areas table
     st.subheader("Peak Areas")
@@ -1105,7 +1105,7 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.legend()
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig_tic, use_container_width=True)
+        st.pyplot(fig_tic, width='stretch')
         plt.close(fig_tic)
 
     # Always show mass spectrum for selected region
@@ -1152,7 +1152,7 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(mz_min_display, mz_max_display)
-        st.pyplot(fig_ms, use_container_width=True)
+        st.pyplot(fig_ms, width='stretch')
         plt.close(fig_ms)
 
         # Store spectrum in session state for deconvolution
@@ -1239,7 +1239,7 @@ def deconvolution_analysis(sample, settings):
         }
 
         fig = create_deconvolution_figure(sample, time_range[0], time_range[1], results, style)
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width='stretch')
 
         # Show theoretical m/z for selected mass
         st.subheader("Theoretical m/z Values")
