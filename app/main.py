@@ -1261,10 +1261,10 @@ def deconvolution_analysis(sample, settings):
         fig_ms, ax = plt.subplots(figsize=(14, 5))
         ax.plot(mz_display, intensity_display, 'b-', linewidth=0.8)
 
-        # Add peak labels with 2 decimal precision
+        # Add peak labels (whole numbers since data is ~1 Da resolution)
         for peak in top_peaks:
             ax.annotate(
-                f"{peak['mz']:.2f}",
+                f"{peak['mz']:.0f}",
                 xy=(peak['mz'], peak['intensity']),
                 xytext=(0, 5),
                 textcoords='offset points',
