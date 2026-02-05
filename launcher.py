@@ -89,34 +89,92 @@ if __name__ == "__main__":
     print(f"  {DIM}v1.0{RESET}")
     print()
 
-    # Wait for server to be ready, then open browser
+    # Create loading HTML page that shows immediately and redirects when ready
     import webbrowser
-    import urllib.request
+    import tempfile
 
-    def wait_and_open_browser():
-        """Wait for server to respond, then open browser."""
-        url = "http://localhost:8501"
-        max_wait = 30  # Maximum seconds to wait
-        start = time.time()
+    LOADING_HTML = """<!DOCTYPE html>
+<html>
+<head>
+    <title>LC-MS Analysis - Loading</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: white;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner {
+            width: 60px;
+            height: 60px;
+            position: relative;
+            animation: spinner-rotate 1.2s linear infinite;
+        }
+        .dot {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #215CAF;
+            border-radius: 50%;
+            animation: spinner-fade 1.2s linear infinite;
+        }
+        .dot:nth-child(1) { top: 0; left: 25px; animation-delay: 0s; }
+        .dot:nth-child(2) { top: 7px; left: 43px; animation-delay: -0.15s; }
+        .dot:nth-child(3) { top: 25px; left: 50px; animation-delay: -0.3s; }
+        .dot:nth-child(4) { top: 43px; left: 43px; animation-delay: -0.45s; }
+        .dot:nth-child(5) { top: 50px; left: 25px; animation-delay: -0.6s; }
+        .dot:nth-child(6) { top: 43px; left: 7px; animation-delay: -0.75s; }
+        .dot:nth-child(7) { top: 25px; left: 0; animation-delay: -0.9s; }
+        .dot:nth-child(8) { top: 7px; left: 7px; animation-delay: -1.05s; }
+        @keyframes spinner-rotate { 100% { transform: rotate(360deg); } }
+        @keyframes spinner-fade {
+            0%, 100% { opacity: 0.2; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1); }
+        }
+        .text { margin-top: 24px; font-size: 16px; color: #333; }
+        .timer { margin-top: 8px; font-size: 12px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="spinner">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <div class="text">Please wait...</div>
+    <div class="timer" id="timer">0.0s</div>
+    <script>
+        const start = Date.now();
+        const target = 'http://localhost:8501';
+        const timerEl = document.getElementById('timer');
 
-        while time.time() - start < max_wait:
-            try:
-                urllib.request.urlopen(url, timeout=1)
-                # Server is ready - open browser
-                webbrowser.open(url)
-                return
-            except Exception:
-                time.sleep(0.5)
+        function checkServer() {
+            const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+            timerEl.textContent = elapsed + 's';
 
-    # Start spinner and browser opener
+            fetch(target, { mode: 'no-cors' })
+                .then(() => { window.location.href = target; })
+                .catch(() => { setTimeout(checkServer, 500); });
+        }
+        checkServer();
+    </script>
+</body>
+</html>"""
+
+    # Write loading page to temp file and open immediately
+    loading_file = os.path.join(tempfile.gettempdir(), 'lcms_loading.html')
+    with open(loading_file, 'w') as f:
+        f.write(LOADING_HTML)
+
+    # Open loading page immediately in browser
+    webbrowser.open('file://' + loading_file)
+
+    # Terminal spinner
     spinner = LoadingSpinner()
     spinner.start("Starting server")
-
-    def open_when_ready():
-        wait_and_open_browser()
-        spinner.stop()
-
-    threading.Thread(target=open_when_ready, daemon=True).start()
 
     print(f"  {CYAN}http://localhost:8501{RESET}")
     print()
