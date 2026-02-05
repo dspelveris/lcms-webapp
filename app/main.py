@@ -1182,12 +1182,11 @@ def deconvolution_analysis(sample, settings):
     with col1:
         if st.button("Auto-detect main peak", type="secondary"):
             if st.session_state.deconv_auto_start is not None:
+                # Set both the internal state AND the widget keys directly
                 st.session_state.deconv_start_input = st.session_state.deconv_auto_start
                 st.session_state.deconv_end_input = st.session_state.deconv_auto_end
-                # Clear widget keys to force sync
-                for key in ['deconv_start_num', 'deconv_end_num']:
-                    if key in st.session_state:
-                        del st.session_state[key]
+                st.session_state.deconv_start_num = st.session_state.deconv_auto_start
+                st.session_state.deconv_end_num = st.session_state.deconv_auto_end
                 st.rerun()
     with col2:
         if st.session_state.deconv_auto_start is not None:
@@ -1216,7 +1215,7 @@ def deconvolution_analysis(sample, settings):
             key="deconv_end_num"
         )
 
-    # Update session state
+    # Update session state from widget values
     st.session_state.deconv_start_input = start_time
     st.session_state.deconv_end_input = end_time
 
