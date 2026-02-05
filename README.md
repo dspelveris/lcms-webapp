@@ -1,35 +1,40 @@
-# LC-MS Analysis Web App
+# LC-MS Analysis
 
-A Streamlit web application for LC-MS (Liquid Chromatography-Mass Spectrometry) data analysis. Supports Agilent .D folders with UV-Vis and MS data.
+Analyze LC-MS (Liquid Chromatography-Mass Spectrometry) data from Agilent .D folders.
 
 ## Features
 
-- **File Upload**: Upload ZIP files containing Agilent `.D` folders (cloud) or browse network drive (local)
 - **UV-Vis Chromatograms**: Multi-wavelength detector (MWD) data at 194, 254, 280 nm
 - **Mass Spectrometry**: Total Ion Chromatogram (TIC) and Extracted Ion Chromatograms (EIC)
 - **Protein Deconvolution**: Calculate neutral mass from multiply-charged ion series
 - **Time Progression**: Compare 2-3 samples with color-coded overlays
 - **Export**: Download plots as PNG (300 DPI), SVG, or PDF
 
-## Quick Start
+## Download Desktop App
 
-### Prerequisites
+Download the app for your platform - no installation required:
 
-- Docker and docker-compose installed
-- Network drive mounted at `/Volumes/chab_loc_lang_s1` (or adjust in docker-compose.yml)
+| Platform | Download |
+|----------|----------|
+| **macOS** | [LCMS-Analysis-macOS.zip](../../releases/latest/download/LCMS-Analysis-macOS.zip) |
+| **Windows** | [LCMS-Analysis-Windows.zip](../../releases/latest/download/LCMS-Analysis-Windows.zip) |
 
-### Run the Application
+### Installation
+
+1. Download and extract the ZIP for your platform
+2. **macOS**: Open Terminal, navigate to the folder, run `./LCMS-Analysis`
+3. **Windows**: Double-click `LCMS-Analysis.exe`
+4. Your browser will open with the app
+5. Use **Browse Files** mode to select .D folders directly (no ZIP needed!)
+
+## Web Version
+
+Use the online version (requires ZIP upload): [Open Web App](https://lcms-webapp.streamlit.app)
+
+## Run from Source
 
 ```bash
-cd lcms-webapp
-docker-compose up --build
-```
-
-Open http://localhost:8501 in your browser.
-
-### Development Mode (without Docker)
-
-```bash
+git clone https://github.com/dspelveris/lcms-webapp.git
 cd lcms-webapp
 pip install -r requirements.txt
 streamlit run app/main.py

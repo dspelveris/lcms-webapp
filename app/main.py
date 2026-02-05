@@ -49,6 +49,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def is_running_locally():
+    """Check if running locally (desktop app) vs cloud."""
+    # Check for Streamlit Cloud environment variables
+    if os.environ.get('STREAMLIT_SHARING_MODE'):
+        return False
+    if os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true':
+        # Could be cloud or local headless, check for common cloud indicators
+        if os.environ.get('HOME', '').startswith('/home/appuser'):
+            return False
+    # Check if we have access to local file system
+    return os.path.exists('/Users') or os.path.exists('C:\\') or os.path.exists('/home')
+
+
 def init_session_state():
     """Initialize session state variables."""
     if 'selected_files' not in st.session_state:
@@ -62,7 +75,8 @@ def init_session_state():
     if 'uploaded_files_dir' not in st.session_state:
         st.session_state.uploaded_files_dir = None
     if 'data_source' not in st.session_state:
-        st.session_state.data_source = 'upload'  # 'upload' or 'browse'
+        # Default to 'browse' for local/desktop, 'upload' for cloud
+        st.session_state.data_source = 'browse' if is_running_locally() else 'upload'
 
 
 def handle_file_upload(uploaded_files):
