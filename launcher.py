@@ -102,9 +102,13 @@ if __name__ == "__main__":
     spinner.stop()
 
     print()
-    print(f"  {GREEN}Ready!{RESET} Open in browser:")
+    print(f"  {GREEN}Ready!{RESET} Opening browser...")
     print(f"  {CYAN}http://localhost:8501{RESET}")
     print()
+
+    # Auto-open browser
+    import webbrowser
+    webbrowser.open("http://localhost:8501")
 
     # Run streamlit directly (not via subprocess)
     sys.argv = [
