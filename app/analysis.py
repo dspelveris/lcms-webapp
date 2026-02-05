@@ -310,53 +310,52 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     if len(scan_indices) == 0:
         return np.array([]), np.array([])
 
-    # Collect all m/z and intensities for high-precision binning
+    # If we have a shared m/z axis, use it directly (faster and preserves original resolution)
+    if sample.ms_mz_axis is not None:
+        mz_axis = sample.ms_mz_axis
+        summed_intensities = np.zeros(len(mz_axis))
+
+        for idx in scan_indices:
+            scan = sample.ms_scans[idx]
+            if scan is not None and isinstance(scan, np.ndarray):
+                if scan.ndim == 1 and len(scan) == len(mz_axis):
+                    summed_intensities += scan
+
+        return mz_axis, summed_intensities
+
+    # Otherwise, collect and bin the spectra
     all_mz = []
     all_int = []
 
-    # If we have a shared m/z axis, use it with intensity arrays
-    if sample.ms_mz_axis is not None:
-        mz_axis = sample.ms_mz_axis
-        for idx in scan_indices:
-            scan = sample.ms_scans[idx]
-            if scan is not None and isinstance(scan, np.ndarray) and scan.ndim == 1:
-                # Scan is intensity array, pair with shared m/z axis
-                if len(scan) == len(mz_axis):
-                    # Only include non-zero intensities to save memory
-                    nonzero = scan > 0
-                    all_mz.extend(mz_axis[nonzero])
-                    all_int.extend(scan[nonzero])
-    else:
-        # Extract m/z and intensity from each scan object
-        for idx in scan_indices:
-            scan = sample.ms_scans[idx]
-            if scan is None:
-                continue
+    for idx in scan_indices:
+        scan = sample.ms_scans[idx]
+        if scan is None:
+            continue
 
-            mz, intensity = None, None
+        mz, intensity = None, None
 
-            if hasattr(scan, 'mz') and hasattr(scan, 'intensity'):
-                mz = np.array(scan.mz)
-                intensity = np.array(scan.intensity)
-            elif hasattr(scan, 'masses') and hasattr(scan, 'intensities'):
-                mz = np.array(scan.masses)
-                intensity = np.array(scan.intensities)
-            elif isinstance(scan, np.ndarray) and scan.ndim == 2:
-                mz = scan[:, 0]
-                intensity = scan[:, 1]
+        if hasattr(scan, 'mz') and hasattr(scan, 'intensity'):
+            mz = np.array(scan.mz)
+            intensity = np.array(scan.intensity)
+        elif hasattr(scan, 'masses') and hasattr(scan, 'intensities'):
+            mz = np.array(scan.masses)
+            intensity = np.array(scan.intensities)
+        elif isinstance(scan, np.ndarray) and scan.ndim == 2:
+            mz = scan[:, 0]
+            intensity = scan[:, 1]
 
-            if mz is not None and intensity is not None and len(mz) > 0:
-                all_mz.extend(mz)
-                all_int.extend(intensity)
+        if mz is not None and intensity is not None and len(mz) > 0:
+            all_mz.extend(mz)
+            all_int.extend(intensity)
 
     if len(all_mz) == 0:
         return np.array([]), np.array([])
 
-    # Bin the data with reasonable precision
+    # Bin the data
     all_mz = np.array(all_mz)
     all_int = np.array(all_int)
     mz_min, mz_max = all_mz.min(), all_mz.max()
-    bin_width = 0.01  # 0.01 Da bins
+    bin_width = 0.1  # 0.1 Da bins for binned data
     bins = np.arange(mz_min, mz_max + bin_width, bin_width)
 
     binned_intensity, bin_edges = np.histogram(all_mz, bins=bins, weights=all_int)
