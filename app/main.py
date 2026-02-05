@@ -1140,10 +1140,13 @@ def deconvolution_analysis(sample, settings):
     # Track which sample we're working with - reset values if sample changed
     if 'deconv_current_sample' not in st.session_state:
         st.session_state.deconv_current_sample = None
+    if 'deconv_widget_key' not in st.session_state:
+        st.session_state.deconv_widget_key = 0
 
     sample_changed = st.session_state.deconv_current_sample != sample.name
     if sample_changed:
         st.session_state.deconv_current_sample = sample.name
+        st.session_state.deconv_widget_key += 1  # Force widget recreation
         # Reset time values to be re-initialized with auto-detect
         if 'deconv_start_val' in st.session_state:
             del st.session_state.deconv_start_val
@@ -1211,6 +1214,8 @@ def deconvolution_analysis(sample, settings):
     if auto_detect_clicked and st.session_state.deconv_auto_start is not None:
         st.session_state.deconv_start_val = st.session_state.deconv_auto_start
         st.session_state.deconv_end_val = st.session_state.deconv_auto_end
+        st.session_state.deconv_widget_key += 1  # Force widget recreation
+        st.rerun()
 
     # Helper to parse time input (accepts comma or period as decimal)
     def parse_time(text, default, min_val, max_val):
@@ -1227,19 +1232,20 @@ def deconvolution_analysis(sample, settings):
         return formatted if formatted else "0"
 
     # Text inputs for time (accepts comma as decimal separator)
+    widget_key = st.session_state.deconv_widget_key
     col1, col2 = st.columns(2)
     with col1:
         start_text = st.text_input(
             "Start time (min)",
             value=format_time(st.session_state.deconv_start_val),
-            key=f"start_{st.session_state.deconv_start_val:.4f}"
+            key=f"deconv_start_{widget_key}"
         )
         start_time = parse_time(start_text, st.session_state.deconv_start_val, min_time, max_time)
     with col2:
         end_text = st.text_input(
             "End time (min)",
             value=format_time(st.session_state.deconv_end_val),
-            key=f"end_{st.session_state.deconv_end_val:.4f}"
+            key=f"deconv_end_{widget_key}"
         )
         end_time = parse_time(end_text, st.session_state.deconv_end_val, min_time, max_time)
 
