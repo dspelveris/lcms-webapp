@@ -648,7 +648,7 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
         peaks = find_spectrum_peaks(mz, intensity, height_threshold=0.2, min_distance=5, use_centroid=True)
         for peak in peaks:
             ax_spec.annotate(
-                f"{peak['mz']:.0f}",
+                f"{peak['mz']:.2f}",
                 xy=(peak['mz'], peak['intensity']),
                 xytext=(0, 3),
                 textcoords='offset points',
