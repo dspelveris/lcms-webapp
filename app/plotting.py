@@ -642,8 +642,9 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
                     '#5c3a32', '#b8518f', '#4d4d4d', '#8a8b19', '#0f8a94']
 
     if deconv_results and len(deconv_results) > 0:
-        masses = [r['mass'] for r in deconv_results[:10]]  # Top 10
-        intensities = [r['intensity'] for r in deconv_results[:10]]
+        # Use all results passed (already limited by caller)
+        masses = [r['mass'] for r in deconv_results]
+        intensities = [r['intensity'] for r in deconv_results]
 
         max_int = max(intensities) if intensities else 1
         norm_intensities = [i / max_int * 100 for i in intensities]

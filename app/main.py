@@ -415,11 +415,18 @@ def sidebar_file_browser():
             st.caption(f"Data Files ({len(d_folders)})")
 
             # Sort options
-            sort_by = st.radio("Sort by", ["Name", "Date"], horizontal=True)
-            if sort_by == "Date":
+            col1, col2 = st.columns(2)
+            with col1:
+                sort_by = st.selectbox("Sort by", ["Name (A-Z)", "Name (Z-A)", "Date (Newest)", "Date (Oldest)"], key="sort_option")
+
+            if sort_by == "Name (A-Z)":
+                d_folders.sort(key=lambda x: x['name'].lower())
+            elif sort_by == "Name (Z-A)":
+                d_folders.sort(key=lambda x: x['name'].lower(), reverse=True)
+            elif sort_by == "Date (Newest)":
                 d_folders.sort(key=lambda x: x['date'], reverse=True)
-            else:
-                d_folders.sort(key=lambda x: x['name'])
+            elif sort_by == "Date (Oldest)":
+                d_folders.sort(key=lambda x: x['date'])
 
             # Checkbox for each .D folder
             for d_folder in d_folders:
@@ -1070,25 +1077,29 @@ def deconvolution_analysis(sample, settings):
             if st.session_state.deconv_auto_start is not None:
                 st.session_state.deconv_start_input = st.session_state.deconv_auto_start
                 st.session_state.deconv_end_input = st.session_state.deconv_auto_end
+                # Clear widget keys to force sync
+                for key in ['deconv_slider', 'deconv_start_num', 'deconv_end_num']:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.rerun()
     with col2:
         if st.session_state.deconv_auto_start is not None:
             st.caption(f"Detected: {st.session_state.deconv_auto_start:.2f} - {st.session_state.deconv_auto_end:.2f} min")
+
+    # Get current values from session state
+    current_start = st.session_state.deconv_start_input
+    current_end = st.session_state.deconv_end_input
 
     # Draggable range slider
     time_range = st.slider(
         "Drag to select time region",
         min_value=float(min_time),
         max_value=float(max_time),
-        value=(st.session_state.deconv_start_input, st.session_state.deconv_end_input),
+        value=(float(current_start), float(current_end)),
         step=0.01,
         format="%.2f min",
         key="deconv_slider"
     )
-
-    # Sync session state with slider
-    st.session_state.deconv_start_input = time_range[0]
-    st.session_state.deconv_end_input = time_range[1]
 
     # Number inputs with +/- buttons for fine adjustment
     col1, col2 = st.columns(2)
@@ -1113,11 +1124,20 @@ def deconvolution_analysis(sample, settings):
             key="deconv_end_num"
         )
 
-    # Update session state if number inputs changed (for next rerun)
+    # Sync all controls - update session state with latest values
+    # Priority: number inputs > slider > session state
     if start_time != time_range[0] or end_time != time_range[1]:
+        # Number inputs were changed
         st.session_state.deconv_start_input = start_time
         st.session_state.deconv_end_input = end_time
+        if 'deconv_slider' in st.session_state:
+            del st.session_state['deconv_slider']
         st.rerun()
+    else:
+        # Slider was changed or no change
+        st.session_state.deconv_start_input = time_range[0]
+        st.session_state.deconv_end_input = time_range[1]
+        start_time, end_time = time_range
 
     # Show TIC with region selector
     if sample.tic is not None:
@@ -1193,6 +1213,9 @@ def deconvolution_analysis(sample, settings):
     # Deconvolution parameters
     st.subheader("Deconvolution")
 
+    # Display settings (outside expander for easy access)
+    top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=5, key="top_n_masses")
+
     with st.expander("Deconvolution Parameters", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -1242,9 +1265,12 @@ def deconvolution_analysis(sample, settings):
         st.divider()
         st.subheader(f"Results ({len(results)} masses detected)")
 
+        # Limit results to top N
+        display_results = results[:top_n_masses]
+
         # Results table
         result_data = []
-        for i, r in enumerate(results[:5]):  # Top 5
+        for i, r in enumerate(display_results):
             result_data.append({
                 'Rank': i + 1,
                 'Mass (Da)': f"{r['mass']:.2f}",
@@ -1260,10 +1286,11 @@ def deconvolution_analysis(sample, settings):
         style = {
             'fig_width': settings['fig_width'],
             'line_width': settings['line_width'],
-            'show_grid': settings['show_grid']
+            'show_grid': settings['show_grid'],
+            'top_n_masses': top_n_masses
         }
 
-        fig = create_deconvolution_figure(sample, time_range[0], time_range[1], results, style)
+        fig = create_deconvolution_figure(sample, time_range[0], time_range[1], display_results, style)
         st.pyplot(fig, width='stretch')
 
         # Show theoretical m/z for selected mass

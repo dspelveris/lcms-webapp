@@ -351,9 +351,9 @@ def sum_spectra_in_range(sample: 'SampleData', start_time: float, end_time: floa
     if len(all_mz) == 0:
         return np.array([]), np.array([])
 
-    # Bin the data
+    # Bin the data with higher precision
     mz_min, mz_max = min(all_mz), max(all_mz)
-    bin_width = 0.1  # 0.1 Da bins
+    bin_width = 0.01  # 0.01 Da bins for better precision
     bins = np.arange(mz_min, mz_max + bin_width, bin_width)
 
     binned_intensity, bin_edges = np.histogram(all_mz, bins=bins, weights=all_int)
