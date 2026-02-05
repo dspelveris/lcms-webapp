@@ -9,20 +9,28 @@ def get_default_path():
     if env_path and os.path.exists(env_path):
         return env_path
 
-    # Common LC-MS data locations
+    # Priority 1: Check for the LC-MS network drive (macOS)
+    lcms_drive = "/Volumes/chab_loc_lang_s1"
+    if os.path.exists(lcms_drive) and os.path.isdir(lcms_drive):
+        return lcms_drive
+
+    # Priority 2: Check /Volumes for any mounted drives (macOS)
+    if os.path.exists("/Volumes"):
+        return "/Volumes"
+
+    # Priority 3: Common fallback locations
     candidates = [
-        "/Volumes/chab_loc_lang_s1",  # macOS network drive
         os.path.expanduser("~/Documents"),  # User documents
         os.path.expanduser("~"),  # Home directory
-        "/data/lcms",  # Docker default
         "C:\\",  # Windows root
+        "/data/lcms",  # Docker default
     ]
 
     for path in candidates:
         if os.path.exists(path):
             return path
 
-    return os.path.expanduser("~")  # Fallback to home
+    return os.path.expanduser("~")  # Final fallback
 
 # Base path for LC-MS data
 BASE_PATH = get_default_path()
