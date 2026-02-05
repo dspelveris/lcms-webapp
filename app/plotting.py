@@ -552,10 +552,14 @@ def create_mass_spectrum_figure(mz: np.ndarray, intensity: np.ndarray,
         if show_grid:
             ax2.grid(True, alpha=0.3)
 
-        # Add mass labels
+        # Add mass labels with appropriate precision
         for mass, rel_int in zip(masses, norm_intensities):
             if rel_int > 10:  # Only label significant peaks
-                ax2.annotate(f"{mass:.2f}",
+                if mass >= 10000:
+                    label_text = f"{mass:.1f}"
+                else:
+                    label_text = f"{mass:.2f}"
+                ax2.annotate(label_text,
                            xy=(mass, rel_int),
                            xytext=(0, 5),
                            textcoords='offset points',
@@ -584,11 +588,11 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
     from analysis import sum_spectra_in_range, get_theoretical_mz
 
     style = style or {}
-    fig_width = style.get('fig_width', 10)  # Smaller default
+    fig_width = style.get('fig_width', 8)  # Smaller default
     line_width = style.get('line_width', 0.8)
     show_grid = style.get('show_grid', True)
 
-    fig = plt.figure(figsize=(fig_width, 7))  # Smaller figure
+    fig = plt.figure(figsize=(fig_width, 5.5))  # Smaller, less zoomed in
 
     # Create grid: top row for chromatogram, bottom left for spectrum, bottom right for deconv
     gs = fig.add_gridspec(2, 2, height_ratios=[1, 2], hspace=0.3, wspace=0.3)
@@ -631,6 +635,12 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
     # Bottom right: Deconvoluted masses (linear kDa scale with vertical lines)
     ax_deconv = fig.add_subplot(gs[1, 1])
 
+    # Color palette for bars and labels
+    bar_colors = ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    label_colors = ['#1a6b1a', '#0d4f8a', '#cc6600', '#a31d1d', '#6b4a91',
+                    '#5c3a32', '#b8518f', '#4d4d4d', '#8a8b19', '#0f8a94']
+
     if deconv_results and len(deconv_results) > 0:
         masses = [r['mass'] for r in deconv_results[:10]]  # Top 10
         intensities = [r['intensity'] for r in deconv_results[:10]]
@@ -641,10 +651,10 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
         # Convert to kDa for x-axis
         masses_kda = [m / 1000 for m in masses]
 
-        # Draw vertical lines (stem plot style)
-        for m_kda, intensity in zip(masses_kda, norm_intensities):
-            ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color='green', linewidth=1.5)
-            ax_deconv.plot(m_kda, intensity, 'go', markersize=3)
+        # Draw vertical lines (stem plot style) with different colors
+        for i, (m_kda, intensity) in enumerate(zip(masses_kda, norm_intensities)):
+            bar_color = bar_colors[i % len(bar_colors)]
+            ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color=bar_color, linewidth=2)
 
         # Set x-axis range: min-20% to max+20%
         min_mass = min(masses_kda)
@@ -656,10 +666,10 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
 
         # Add mass labels with overlap avoidance
         # Sort by x position for overlap detection
-        labeled_peaks = sorted(zip(masses_kda, norm_intensities, masses), key=lambda x: x[0])
+        labeled_peaks = sorted(enumerate(zip(masses_kda, norm_intensities, masses)), key=lambda x: x[1][0])
         label_positions = []  # Track (x, y) of placed labels
 
-        for m_kda, intensity, mass_da in labeled_peaks:
+        for orig_idx, (m_kda, intensity, mass_da) in labeled_peaks:
             # Default label position
             label_y = intensity + 3
             label_x = m_kda
@@ -673,16 +683,20 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
 
             label_positions.append((label_x, label_y))
 
-            # Format label: show Da value
-            if mass_da >= 1000:
-                label_text = f"{mass_da:.0f}"
+            # Format label: show Da value with appropriate precision
+            if mass_da >= 10000:
+                label_text = f"{mass_da:.1f}"  # 15679.3
+            elif mass_da >= 1000:
+                label_text = f"{mass_da:.2f}"  # 1568.89
             else:
-                label_text = f"{mass_da:.1f}"
+                label_text = f"{mass_da:.2f}"  # 500.50
 
+            # Use matching label color for each bar
+            label_color = label_colors[orig_idx % len(label_colors)]
             ax_deconv.annotate(label_text, (m_kda, intensity),
                              xytext=(label_x, label_y),
                              fontsize=6, ha='center', va='bottom',
-                             color='darkgreen')
+                             color=label_color, fontweight='bold')
 
         ax_deconv.set_xlabel("Mass (kDa)")
         ax_deconv.set_ylabel("Relative Intensity (%)")
