@@ -1743,7 +1743,8 @@ def deconvolution_analysis(sample, settings):
         selected_mass_idx = st.selectbox(
             "Select mass to view theoretical peaks",
             range(len(results[:10])),
-            format_func=lambda i: f"{results[i]['mass']:.2f} Da"
+            format_func=lambda i: f"{results[i]['mass']:.2f} Da",
+            key="theo_mz_mass_select"
         )
 
         if selected_mass_idx is not None:
@@ -1861,44 +1862,41 @@ def main():
     samples = load_samples(selected_files)
     sample_list = [samples[p] for p in selected_files]
 
-    # Analysis tabs
-    if len(selected_files) == 1:
-        tab1, tab2, tab3 = st.tabs(["Single Sample", "EIC Batch", "Deconvolution"])
+    # Analysis tabs - always show all 4 tabs for consistent navigation
+    tab1, tab2, tab3, tab4 = st.tabs(["Single Sample", "EIC Batch", "Deconvolution", "Time Progression"])
 
-        with tab1:
+    with tab1:
+        if len(selected_files) == 1:
             single_sample_analysis(sample_list[0], settings)
-
-        with tab2:
-            eic_batch_analysis(sample_list[0], settings)
-
-        with tab3:
-            deconvolution_analysis(sample_list[0], settings)
-    else:
-        tab1, tab2, tab3, tab4 = st.tabs(["Time Progression", "Single Sample", "EIC Batch", "Deconvolution"])
-
-        with tab1:
-            time_progression_analysis(sample_list, settings)
-
-        with tab2:
-            # Sample selector for single analysis
+        else:
             sample_names = [s.name for s in sample_list]
-            selected_name = st.selectbox("Select sample", sample_names)
+            selected_name = st.selectbox("Select sample", sample_names, key="single_sample_select")
             selected_idx = sample_names.index(selected_name)
             single_sample_analysis(sample_list[selected_idx], settings)
 
-        with tab3:
-            # Sample selector for EIC batch
+    with tab2:
+        if len(selected_files) == 1:
+            eic_batch_analysis(sample_list[0], settings)
+        else:
             sample_names = [s.name for s in sample_list]
             selected_name = st.selectbox("Select sample for EIC", sample_names, key="eic_sample")
             selected_idx = sample_names.index(selected_name)
             eic_batch_analysis(sample_list[selected_idx], settings)
 
-        with tab4:
-            # Sample selector for deconvolution
+    with tab3:
+        if len(selected_files) == 1:
+            deconvolution_analysis(sample_list[0], settings)
+        else:
             sample_names = [s.name for s in sample_list]
             selected_name = st.selectbox("Select sample for Deconvolution", sample_names, key="deconv_sample")
             selected_idx = sample_names.index(selected_name)
             deconvolution_analysis(sample_list[selected_idx], settings)
+
+    with tab4:
+        if len(selected_files) == 1:
+            st.info("Select multiple samples to enable Time Progression analysis.")
+        else:
+            time_progression_analysis(sample_list, settings)
 
 
 if __name__ == "__main__":
