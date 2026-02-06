@@ -1546,6 +1546,7 @@ def deconvolution_analysis(sample, settings):
     contig_min = 3
     use_mz_agreement = False
     use_monoisotopic = False
+    include_singly_charged = False
     min_peaks = 3
     max_peaks = 50
     mass_tolerance = 1.0
@@ -1555,7 +1556,7 @@ def deconvolution_analysis(sample, settings):
     max_charge = 50
 
     # Display settings (outside expander for easy access)
-    top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=5, key="top_n_masses")
+    top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=10, key="top_n_masses")
 
     with st.expander("Deconvolution Parameters", expanded=False):
         col1, col2 = st.columns(2)
@@ -1572,6 +1573,11 @@ def deconvolution_analysis(sample, settings):
         with col3:
             noise_cutoff = st.number_input("Noise cutoff (counts)", min_value=0.0, max_value=1e9, value=1000.0, step=100.0,
                                            help="Agilent default: 1000")
+        include_singly_charged = st.checkbox(
+            "Include singly-charged (z=1) ions",
+            value=False,
+            help="Off by default to keep protein deconvolution ranking focused on charge envelopes."
+        )
 
         # Expert mode — hidden by default
         expert_mode = st.checkbox("Expert mode", value=False, key="deconv_expert_mode")
@@ -1750,10 +1756,8 @@ def deconvolution_analysis(sample, settings):
 
             results = [r for r in results if low_mw <= r['mass'] <= high_mw]
 
-            # Merge singly-charged (z=1) species into results.
-            # Agilent reports z=1 species even when their m/z overlaps with
-            # charge-envelope peaks — both assignments are valid.
-            if method == "Agilent-like":
+            # Optional merge of singly-charged (z=1) species.
+            if method == "Agilent-like" and include_singly_charged:
                 singly = detect_singly_charged(
                     mz, intensity,
                     noise_cutoff=noise_cutoff,
@@ -1798,7 +1802,8 @@ def deconvolution_analysis(sample, settings):
         envelope_cutoff_pct if method == "Agilent-like" else None,
         contig_min if method == "Agilent-like" else None,
         use_mz_agreement if method == "Agilent-like" else None,
-        use_monoisotopic if method == "Agilent-like" else None
+        use_monoisotopic if method == "Agilent-like" else None,
+        include_singly_charged if method == "Agilent-like" else None
     )
     if st.session_state.get('deconv_autorun_pending') and st.session_state.get('deconv_last_autorun_sig') != autorun_sig:
         run_deconvolution()
@@ -1831,6 +1836,8 @@ def deconvolution_analysis(sample, settings):
             caption_parts.append(f"Spectrum: {extraction_mode}{apex_info}")
             if method == "Agilent-like" and use_monoisotopic:
                 caption_parts.append("H+=1.007276 (mono)")
+            if method == "Agilent-like" and include_singly_charged:
+                caption_parts.append("z=1 included")
         if caption_parts:
             st.caption(" | ".join(caption_parts))
 
