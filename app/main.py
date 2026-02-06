@@ -6,7 +6,7 @@ import streamlit as st
 st.set_page_config(
     page_title="LC-MS Analysis",
     page_icon=":material/science:",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded"
 )
 
@@ -93,7 +93,6 @@ _loading_placeholder.markdown(LOADING_OVERLAY, unsafe_allow_html=True)
 @st.cache_resource(show_spinner=False)
 def _init_heavy_modules():
     """Initialize heavy modules once per process."""
-    import pandas
     import numpy
     import matplotlib.pyplot as plt
     import matplotlib
@@ -115,7 +114,6 @@ def _init_heavy_modules():
 _init_heavy_modules()
 
 # Now import everything (will be fast since modules are already loaded)
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import zipfile
@@ -126,7 +124,7 @@ import config
 from data_reader import list_d_folders_cached, read_sample_cached, check_rainbow_available
 from analysis import (
     extract_eic, smooth_data, calculate_peak_area, find_peaks, find_spectrum_peaks,
-    sum_spectra_in_range, deconvolute_protein, get_theoretical_mz
+    sum_spectra_in_range, deconvolute_protein, deconvolute_protein_agilent_like, get_theoretical_mz
 )
 from plotting import (
     create_single_sample_figure,
@@ -474,6 +472,109 @@ def get_folder_contents(path: str) -> tuple[list[dict], list[dict]]:
     return subfolders, d_folders
 
 
+def extract_apex_spectrum(sample, start_time: float, end_time: float, n_scans: int = 1):
+    """
+    Extract spectrum around TIC apex within the time window.
+
+    Args:
+        sample: SampleData object
+        start_time: Start of time window (minutes)
+        end_time: End of time window (minutes)
+        n_scans: Number of scans to average around apex (1 = single scan, 3-5 recommended)
+
+    Returns:
+        Tuple of (mz_array, intensity_array)
+    """
+    if sample.ms_scans is None or sample.ms_times is None:
+        return np.array([]), np.array([])
+
+    time_mask = (sample.ms_times >= start_time) & (sample.ms_times <= end_time)
+    scan_indices = np.where(time_mask)[0]
+    if len(scan_indices) == 0:
+        return np.array([]), np.array([])
+
+    # Find apex scan (highest TIC)
+    apex_idx = None
+    max_sum = -1.0
+    for idx in scan_indices:
+        scan = sample.ms_scans[idx]
+        if scan is None:
+            continue
+        total = float(np.sum(scan)) if isinstance(scan, np.ndarray) else 0.0
+        if total > max_sum:
+            max_sum = total
+            apex_idx = idx
+
+    if apex_idx is None:
+        return np.array([]), np.array([])
+
+    # If n_scans == 1, return single apex scan (original behavior)
+    if n_scans <= 1:
+        if sample.ms_mz_axis is not None:
+            return sample.ms_mz_axis, sample.ms_scans[apex_idx]
+        return sum_spectra_in_range(sample, start_time, end_time)
+
+    # Otherwise, average n_scans centered on apex
+    half = n_scans // 2
+
+    # Find valid range within time window
+    apex_pos = np.where(scan_indices == apex_idx)[0][0]
+    start_pos = max(0, apex_pos - half)
+    end_pos = min(len(scan_indices) - 1, apex_pos + half)
+
+    # Get the actual scan indices to average
+    scans_to_avg = scan_indices[start_pos:end_pos + 1]
+
+    if len(scans_to_avg) == 0:
+        return np.array([]), np.array([])
+
+    # Average the scans
+    if sample.ms_mz_axis is not None:
+        mz_axis = sample.ms_mz_axis
+        summed_intensities = np.zeros(len(mz_axis))
+        count = 0
+        for idx in scans_to_avg:
+            scan = sample.ms_scans[idx]
+            if scan is not None and isinstance(scan, np.ndarray):
+                summed_intensities += scan
+                count += 1
+        if count > 0:
+            summed_intensities /= count  # Average, not sum
+        return mz_axis, summed_intensities
+
+    # Fallback: use sum_spectra_in_range for the apex window
+    apex_start_time = float(sample.ms_times[scans_to_avg[0]])
+    apex_end_time = float(sample.ms_times[scans_to_avg[-1]])
+    mz, intensity = sum_spectra_in_range(sample, apex_start_time, apex_end_time)
+    # Normalize to average
+    if len(scans_to_avg) > 1:
+        intensity = intensity / len(scans_to_avg)
+    return mz, intensity
+
+
+def render_text_table(rows: list[dict], columns: list[str]) -> None:
+    """Render a simple ASCII table to avoid pyarrow dependency."""
+    if not rows:
+        st.info("No results to display.")
+        return
+    col_widths = []
+    for col in columns:
+        max_len = len(col)
+        for row in rows:
+            max_len = max(max_len, len(str(row.get(col, ""))))
+        col_widths.append(max_len)
+
+    def fmt_row(vals):
+        return " | ".join(str(v).ljust(w) for v, w in zip(vals, col_widths))
+
+    header = fmt_row(columns)
+    sep = "-+-".join("-" * w for w in col_widths)
+    lines = [header, sep]
+    for row in rows:
+        lines.append(fmt_row([row.get(col, "") for col in columns]))
+    st.code("\n".join(lines), language="text")
+
+
 def get_windows_drives() -> list[str]:
     """Return a list of available Windows drive roots (e.g., C:\\, D:\\)."""
     if os.name != "nt":
@@ -502,7 +603,7 @@ def sidebar_file_browser():
                 key="path_display",
             )
         with go_col:
-            if st.button("Go", width='stretch'):
+            if st.button("Go", use_container_width=True):
                 if new_path and Path(new_path).exists():
                     st.session_state.current_path = new_path
                     st.rerun()
@@ -516,19 +617,19 @@ def sidebar_file_browser():
             drive_cols = st.columns(min(len(drives), 4))
             for i, drive in enumerate(drives):
                 with drive_cols[i % len(drive_cols)]:
-                    if st.button(drive, key=f"drive_{drive}", width='stretch'):
+                    if st.button(drive, key=f"drive_{drive}", use_container_width=True):
                         st.session_state.current_path = drive
                         st.rerun()
 
         # Navigation buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("↑ Up", width='stretch'):
+            if st.button("↑ Up", use_container_width=True):
                 parent = str(Path(current_path).parent)
                 st.session_state.current_path = parent
                 st.rerun()
         with col2:
-            if st.button("⌂ Home", width='stretch'):
+            if st.button("⌂ Home", use_container_width=True):
                 st.session_state.current_path = config.BASE_PATH
                 st.rerun()
 
@@ -545,7 +646,7 @@ def sidebar_file_browser():
         if subfolders:
             st.caption("Folders")
             for folder in subfolders:
-                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", width='stretch'):
+                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", use_container_width=True):
                     st.session_state.current_path = folder['path']
                     st.rerun()
 
@@ -596,7 +697,7 @@ def sidebar_file_browser():
                         st.session_state.selected_files.remove(path)
                         st.rerun()
 
-            if st.button("Clear all", width='stretch'):
+            if st.button("Clear all", use_container_width=True):
                 st.session_state.selected_files = []
                 st.rerun()
 
@@ -874,7 +975,7 @@ def single_sample_analysis(sample, settings):
                 else:
                     ax_uv.text(0.5, 0.5, f"No UV data at {wl:.0f} nm", ha='center', va='center', transform=ax_uv.transAxes)
                 fig_uv.tight_layout()
-                st.pyplot(fig_uv, width='stretch')
+                st.pyplot(fig_uv, use_container_width=True)
                 plt.close(fig_uv)
 
         # TIC
@@ -886,7 +987,7 @@ def single_sample_analysis(sample, settings):
             ax_tic.set_title("Total Ion Chromatogram (TIC)", fontsize=9)
             ax_tic.tick_params(labelsize=7)
             fig_tic.tight_layout()
-            st.pyplot(fig_tic, width='stretch')
+            st.pyplot(fig_tic, use_container_width=True)
             plt.close(fig_tic)
 
     with right_col:
@@ -906,7 +1007,7 @@ def single_sample_analysis(sample, settings):
                 else:
                     ax_eic.text(0.5, 0.5, f"No data for m/z {mz}", ha='center', va='center', transform=ax_eic.transAxes)
                 fig_eic.tight_layout()
-                st.pyplot(fig_eic, width='stretch')
+                st.pyplot(fig_eic, use_container_width=True)
                 plt.close(fig_eic)
 
     # Combined figure for export
@@ -1036,7 +1137,7 @@ def time_progression_analysis(samples: list, settings):
     )
 
     # Display
-    st.pyplot(fig, width='stretch')
+    st.pyplot(fig, use_container_width=True)
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -1097,7 +1198,7 @@ def eic_batch_analysis(sample, settings):
         overlay=overlay
     )
 
-    st.pyplot(fig, width='stretch')
+    st.pyplot(fig, use_container_width=True)
 
     # Peak areas table
     st.subheader("Peak Areas")
@@ -1119,7 +1220,7 @@ def eic_batch_analysis(sample, settings):
             })
 
     if peak_data:
-        st.table(pd.DataFrame(peak_data))
+        render_text_table(peak_data, list(peak_data[0].keys()) if peak_data else [])
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -1301,13 +1402,39 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.legend()
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig_tic, width='stretch')
+        st.pyplot(fig_tic, use_container_width=True)
         plt.close(fig_tic)
+
+    # Spectrum extraction mode
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        extraction_mode = st.selectbox(
+            "Spectrum extraction",
+            ["Average (sum)", "Peak apex"],
+            index=0,
+            key="deconv_spectrum_mode"
+        )
+    with col2:
+        # Apex window size (only shown for Peak apex mode)
+        if extraction_mode == "Peak apex":
+            apex_n_scans = st.selectbox(
+                "Apex window",
+                [1, 3, 5, 7],
+                index=1,  # Default to 3 scans
+                format_func=lambda x: f"{x} scan{'s' if x > 1 else ''}",
+                key="apex_n_scans",
+                help="Number of scans to average around the TIC apex. 3-5 recommended."
+            )
+        else:
+            apex_n_scans = 1
 
     # Always show mass spectrum for selected region
     st.subheader(f"Mass Spectrum ({format_time(start_time)} - {format_time(end_time)} min)")
 
-    mz, intensity = sum_spectra_in_range(sample, start_time, end_time)
+    if extraction_mode == "Peak apex":
+        mz, intensity = extract_apex_spectrum(sample, start_time, end_time, n_scans=apex_n_scans)
+    else:
+        mz, intensity = sum_spectra_in_range(sample, start_time, end_time)
 
     if len(mz) > 0:
         # m/z range filter (dynamic keys to update when time range changes)
@@ -1353,7 +1480,7 @@ def deconvolution_analysis(sample, settings):
         y_max = intensity_display.max() if len(intensity_display) > 0 else 1
         ax.set_ylim(0, y_max * 1.2)
         plt.tight_layout()
-        st.pyplot(fig_ms, width='stretch')
+        st.pyplot(fig_ms, use_container_width=True)
 
         # Export buttons for summed mass spectrum
         col1, col2, col3 = st.columns(3)
@@ -1399,13 +1526,32 @@ def deconvolution_analysis(sample, settings):
     # Deconvolution parameters
     st.subheader("Deconvolution")
 
+    method = st.selectbox(
+        "Deconvolution method",
+        ["Agilent-like", "Simple"],
+        index=0,
+        key="deconv_method"
+    )
+
+    # Defaults for Agilent-like parameters - matched to Agilent's actual defaults
+    # From PDF: MW Agreement 0.05%, Noise 1000, Abundance 10%, MW Assign 40%, Envelope 50%
+    pwhh = 0.6
+    mw_agreement_pct = 0.05           # Agilent default: 0.05%
+    noise_cutoff = 1000.0             # Agilent default: 1000 counts
+    abundance_cutoff_pct = 10.0       # Agilent default: 10%
+    mw_assign_cutoff_pct = 40.0       # Agilent default: 40%
+    envelope_cutoff_pct = 50.0        # Agilent default: 50%
+    contig_min = 3
+    use_mz_agreement = False
+    use_monoisotopic = False
+
     # Display settings (outside expander for easy access)
     top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=5, key="top_n_masses")
 
     with st.expander("Deconvolution Parameters", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
-            low_mw = st.number_input("Low MW (Da)", min_value=100, max_value=500000, value=500, step=100)
+            low_mw = st.number_input("Low MW (Da)", min_value=100, max_value=500000, value=10000, step=100)
         with col2:
             high_mw = st.number_input("High MW (Da)", min_value=100, max_value=500000, value=50000, step=1000)
 
@@ -1419,34 +1565,101 @@ def deconvolution_analysis(sample, settings):
         with col4:
             max_peaks = st.number_input("Max peaks in set", min_value=2, max_value=100, value=50)
         with col5:
-            mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=0.5, step=0.1)
+            mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=1.0, step=0.1)
+
+        if method == "Agilent-like":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                pwhh = st.number_input("Ion PWHH (Da)", min_value=0.05, max_value=5.0, value=0.6, step=0.05)
+            with col2:
+                mw_agreement_pct = st.number_input("MW agreement (%)", min_value=0.001, max_value=5.0, value=0.05, step=0.01,
+                                                   help="Agilent default: 0.05%")
+            with col3:
+                noise_cutoff = st.number_input("Noise cutoff (counts)", min_value=0.0, max_value=1e9, value=1000.0, step=100.0,
+                                               help="Agilent default: 1000")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                abundance_cutoff_pct = st.number_input("Abundance cutoff (%)", min_value=0.0, max_value=100.0, value=10.0, step=1.0,
+                                                       help="Agilent default: 10%")
+            with col2:
+                mw_assign_cutoff_pct = st.number_input("MW assign cutoff (%)", min_value=0.0, max_value=100.0, value=40.0, step=1.0,
+                                                       help="Agilent default: 40%")
+            with col3:
+                envelope_cutoff_pct = st.number_input("Envelope cutoff (%)", min_value=0.0, max_value=100.0, value=50.0, step=1.0,
+                                                      help="Agilent default: 50%")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                contig_min = st.number_input("Min contiguous charges", min_value=1, max_value=50, value=3, step=1)
+            with col2:
+                use_mz_agreement = st.checkbox("Use m/z agreement", value=False)
+            with col3:
+                use_monoisotopic = st.checkbox(
+                    "Monoisotopic H+",
+                    value=False,
+                    help="Use monoisotopic proton mass (1.007276) instead of average (1.00784). Try toggling if masses are ~1-2 Da off."
+                )
 
     def run_deconvolution():
         with st.spinner("Running deconvolution..."):
-            results = deconvolute_protein(
-                mz, intensity,
-                min_charge=min_charge,
-                max_charge=max_charge,
-                mass_tolerance=mass_tolerance,
-                min_peaks=min_peaks,
-                max_peaks=max_peaks
-            )
+            if method == "Agilent-like":
+                results = deconvolute_protein_agilent_like(
+                    mz, intensity,
+                    min_charge=min_charge,
+                    max_charge=max_charge,
+                    min_peaks=min_peaks,
+                    noise_cutoff=noise_cutoff,
+                    abundance_cutoff=abundance_cutoff_pct / 100.0,
+                    mw_agreement=mw_agreement_pct / 100.0,
+                    mw_assign_cutoff=mw_assign_cutoff_pct / 100.0,
+                    envelope_cutoff=envelope_cutoff_pct / 100.0,
+                    pwhh=pwhh,
+                    low_mw=low_mw,
+                    high_mw=high_mw,
+                    contig_min=contig_min,
+                    use_mz_agreement=use_mz_agreement,
+                    use_monoisotopic_proton=use_monoisotopic
+                )
+            else:
+                results = deconvolute_protein(
+                    mz, intensity,
+                    min_charge=min_charge,
+                    max_charge=max_charge,
+                    mass_tolerance=mass_tolerance,
+                    min_peaks=min_peaks,
+                    max_peaks=max_peaks
+                )
 
             results = [r for r in results if low_mw <= r['mass'] <= high_mw]
             st.session_state.deconv_results = results
             st.session_state.deconv_mw_range = (low_mw, high_mw)
+            st.session_state.deconv_use_monoisotopic = use_monoisotopic
 
     autorun_sig = (
         sample.name,
         round(start_time, 4),
         round(end_time, 4),
+        extraction_mode,
+        apex_n_scans if extraction_mode == "Peak apex" else 1,
+        method,
         low_mw,
         high_mw,
         min_charge,
         max_charge,
         min_peaks,
         max_peaks,
-        mass_tolerance
+        mass_tolerance,
+        # Agilent-like params
+        pwhh if method == "Agilent-like" else None,
+        mw_agreement_pct if method == "Agilent-like" else None,
+        noise_cutoff if method == "Agilent-like" else None,
+        abundance_cutoff_pct if method == "Agilent-like" else None,
+        mw_assign_cutoff_pct if method == "Agilent-like" else None,
+        envelope_cutoff_pct if method == "Agilent-like" else None,
+        contig_min if method == "Agilent-like" else None,
+        use_mz_agreement if method == "Agilent-like" else None,
+        use_monoisotopic if method == "Agilent-like" else None
     )
     if st.session_state.get('deconv_autorun_pending') and st.session_state.get('deconv_last_autorun_sig') != autorun_sig:
         run_deconvolution()
@@ -1464,6 +1677,17 @@ def deconvolution_analysis(sample, settings):
         intensity = st.session_state.deconv_intensity
         time_range = st.session_state.deconv_time_range
 
+        # Build info caption
+        proton_info = ""
+        if method == "Agilent-like" and st.session_state.get('deconv_use_monoisotopic'):
+            proton_info = " | H+=1.007276 (mono)"
+        apex_info = ""
+        if extraction_mode == "Peak apex":
+            apex_info = f" ({apex_n_scans} scans)"
+        st.caption(f"Method: {method} | Spectrum: {extraction_mode}{apex_info}{proton_info}")
+
+        show_full_precision = st.checkbox("Show full precision masses", value=False, key="deconv_full_precision")
+
         st.divider()
         st.subheader(f"Results ({len(results)} masses detected)")
 
@@ -1473,16 +1697,18 @@ def deconvolution_analysis(sample, settings):
         # Results table
         result_data = []
         for i, r in enumerate(display_results):
+            mass_val = r['mass'] if show_full_precision else f"{r['mass']:.2f}"
+            std_val = r['mass_std'] if show_full_precision else f"{r['mass_std']:.2f}"
             result_data.append({
                 'Rank': i + 1,
-                'Mass (Da)': f"{r['mass']:.2f}",
-                'Std Dev': f"{r['mass_std']:.2f}",
+                'Mass (Da)': mass_val,
+                'Std Dev': std_val,
                 'Charge States': f"{min(r['charge_states'])}-{max(r['charge_states'])}",
                 'Num Charges': r['num_charges'],
                 'Rel. Intensity': f"{r['intensity'] / results[0]['intensity'] * 100:.1f}%"
             })
 
-        st.table(pd.DataFrame(result_data))
+        render_text_table(result_data, list(result_data[0].keys()) if result_data else [])
 
         # Create figure
         style = {
@@ -1493,7 +1719,7 @@ def deconvolution_analysis(sample, settings):
         }
 
         fig = create_deconvolution_figure(sample, time_range[0], time_range[1], display_results, style)
-        st.pyplot(fig, width='stretch')
+        st.pyplot(fig, use_container_width=True)
 
         # Show theoretical m/z for selected mass
         st.subheader("Theoretical m/z Values")
@@ -1505,7 +1731,12 @@ def deconvolution_analysis(sample, settings):
 
         if selected_mass_idx is not None:
             selected_result = results[selected_mass_idx]
-            theoretical = get_theoretical_mz(selected_result['mass'], selected_result['charge_states'])
+            use_mono = st.session_state.get('deconv_use_monoisotopic', False)
+            theoretical = get_theoretical_mz(
+                selected_result['mass'],
+                selected_result['charge_states'],
+                use_monoisotopic_proton=use_mono
+            )
 
             theo_data = []
             for t in theoretical:
@@ -1513,7 +1744,7 @@ def deconvolution_analysis(sample, settings):
                     'Charge': f"+{t['charge']}",
                     'm/z': f"{t['mz']:.4f}"
                 })
-            st.table(pd.DataFrame(theo_data))
+            render_text_table(theo_data, list(theo_data[0].keys()) if theo_data else [])
 
         # Export buttons
         col1, col2, col3 = st.columns(3)

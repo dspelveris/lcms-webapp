@@ -189,7 +189,8 @@ class SampleData:
                     # Try MS files (.MS)
                     elif f.endswith('.MS'):
                         try:
-                            df = chemstation.parse_file(filepath, prec=0)
+                            # Use prec=1 for 0.1 Da m/z resolution (sub-dalton precision)
+                            df = chemstation.parse_file(filepath, prec=1)
                             if df is not None:
                                 result.by_detector['MS'] = df
                                 result.datafiles.append(df)
@@ -220,7 +221,8 @@ class SampleData:
             # First try normal read
             data = None
             try:
-                data = rb.read(self.folder_path)
+                # Use prec=1 for 0.1 Da m/z resolution (sub-dalton precision)
+                data = rb.read(self.folder_path, prec=1)
                 # Check if rb.read returned empty data
                 if data and hasattr(data, 'by_detector') and len(data.by_detector) == 0:
                     self._debug_info['rb_read_empty'] = True

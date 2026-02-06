@@ -1,5 +1,6 @@
 """Analysis functions for LC-MS data processing."""
 
+import warnings
 import numpy as np
 from scipy import signal
 from scipy import integrate
@@ -602,18 +603,465 @@ def deconvolute_protein(mz: np.ndarray, intensity: np.ndarray,
     return results
 
 
-def get_theoretical_mz(mass: float, charge_states: list[int]) -> list[dict]:
+def _smooth_spectrum(mz: np.ndarray, intensity: np.ndarray, fwhm_da: float) -> np.ndarray:
+    if len(mz) < 2 or fwhm_da <= 0:
+        return intensity
+    try:
+        from scipy.ndimage import gaussian_filter1d
+    except Exception:
+        return intensity
+    resolution = float(np.median(np.diff(mz)))
+    if resolution <= 0:
+        return intensity
+    sigma_da = fwhm_da / 2.3548
+    sigma_pts = sigma_da / resolution
+    if sigma_pts < 0.5:
+        return intensity
+    return gaussian_filter1d(intensity, sigma_pts)
+
+
+def _find_peaks_simple(intensity: np.ndarray, min_distance_pts: int = 2) -> list[int]:
+    if len(intensity) < 3:
+        return []
+    peak_idx = []
+    for i in range(1, len(intensity) - 1):
+        if intensity[i] >= intensity[i - 1] and intensity[i] >= intensity[i + 1]:
+            peak_idx.append(i)
+    # Enforce min distance (greedy by intensity)
+    # Check distance from ALL previously added peaks, not just the last one
+    filtered = []
+    for idx in sorted(peak_idx, key=lambda x: intensity[x], reverse=True):
+        # Check if this peak is far enough from all already-selected peaks
+        too_close = False
+        for existing_idx in filtered:
+            if abs(idx - existing_idx) < min_distance_pts:
+                too_close = True
+                break
+        if not too_close:
+            filtered.append(idx)
+    return sorted(filtered)
+
+
+def _parabolic_centroid(mz: np.ndarray, intensity: np.ndarray, peak_idx: int) -> float:
+    """
+    Sub-bin centroid using parabolic interpolation around apex.
+
+    Fits a parabola to the peak apex and its two neighbors to find
+    the true maximum with sub-bin precision.
+    """
+    if peak_idx <= 0 or peak_idx >= len(mz) - 1:
+        return float(mz[peak_idx])
+
+    y0 = float(intensity[peak_idx - 1])
+    y1 = float(intensity[peak_idx])
+    y2 = float(intensity[peak_idx + 1])
+
+    x0 = float(mz[peak_idx - 1])
+    x1 = float(mz[peak_idx])
+    x2 = float(mz[peak_idx + 1])
+
+    # Parabolic interpolation for apex position
+    denom = 2.0 * (y0 - 2.0 * y1 + y2)
+    if abs(denom) < 1e-10:
+        return x1
+
+    # Delta in index units, then convert to m/z
+    delta = (y0 - y2) / denom
+    dx = (x2 - x0) / 2.0
+
+    # Clamp delta to avoid extrapolating too far
+    delta = max(-1.0, min(1.0, delta))
+
+    return x1 + delta * dx
+
+
+def _gaussian_fit_r2(charges: list[int], intensities: list[float]) -> float:
+    if len(charges) < 3:
+        return 0.0
+    x = np.array(charges, dtype=float)
+    y = np.log(np.maximum(intensities, 1.0))
+    try:
+        coeffs = np.polyfit(x, y, 2)
+        yhat = np.polyval(coeffs, x)
+        ss_res = np.sum((y - yhat) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        if ss_tot == 0:
+            return 0.0
+        r2 = 1 - ss_res / ss_tot
+        return max(0.0, min(1.0, float(r2)))
+    except Exception:
+        return 0.0
+
+
+def deconvolute_protein_agilent_like(
+    mz: np.ndarray,
+    intensity: np.ndarray,
+    min_charge: int = 5,
+    max_charge: int = 50,
+    min_peaks: int = 3,
+    noise_cutoff: float = 1000.0,
+    abundance_cutoff: float = 0.10,
+    mw_agreement: float = 0.0005,
+    mw_assign_cutoff: float = 0.40,
+    envelope_cutoff: float = 0.50,
+    pwhh: float = 0.6,
+    low_mw: float = 500.0,
+    high_mw: float = 50000.0,
+    contig_min: int = 3,
+    use_mz_agreement: bool = False,
+    use_monoisotopic_proton: bool = False,
+) -> list[dict]:
+    """
+    Agilent-like deconvolution workflow:
+    - Build ion sets around an anchor peak
+    - Apply MW agreement % as ion-set membership gate
+    - Apply absolute + relative noise cutoffs
+    - Curve-fit MW by weighted regression, centroid fallback
+    - Enforce envelope Gaussianity threshold
+    - Deferred ion-set selection to detect overlapping species
+
+    Args:
+        use_monoisotopic_proton: If True, use 1.007276 (monoisotopic);
+                                  if False, use 1.00784 (average)
+    """
+    # Proton mass toggle: monoisotopic vs average
+    PROTON_MASS = 1.007276 if use_monoisotopic_proton else 1.00784
+
+    if len(mz) == 0 or len(intensity) == 0:
+        return []
+
+    inten = _smooth_spectrum(mz, intensity, pwhh)
+    resolution = float(np.median(np.diff(mz))) if len(mz) > 1 else 1.0
+    min_distance_pts = max(2, int(pwhh / resolution)) if resolution > 0 else 2
+    peak_idx = _find_peaks_simple(inten, min_distance_pts=min_distance_pts)
+
+    peaks = []
+    for idx in peak_idx:
+        if inten[idx] < noise_cutoff:
+            continue
+        # Use parabolic centroiding for better m/z precision
+        centroid_mz = _parabolic_centroid(mz, inten, idx)
+        peaks.append({
+            'mz': centroid_mz,
+            'intensity': float(inten[idx]),
+            'index': idx
+        })
+    peaks.sort(key=lambda p: p['intensity'], reverse=True)
+
+    if len(peaks) < min_peaks:
+        return []
+
+    # Collect ALL candidate ion sets first (deferred selection)
+    all_candidates = []
+
+    for anchor in peaks:
+        anchor_mz = anchor['mz']
+        anchor_int = anchor['intensity']
+        anchor_idx = anchor['index']
+
+        for z0 in range(min_charge, max_charge + 1):
+            M0 = z0 * (anchor_mz - PROTON_MASS)
+            if M0 < low_mw or M0 > high_mw:
+                continue
+
+            ions = []
+            ion_indices = set()
+            for p in peaks:
+                if p['intensity'] < noise_cutoff:
+                    continue
+                if p['intensity'] < anchor_int * abundance_cutoff:
+                    continue
+
+                best = None
+                for z in range(min_charge, max_charge + 1):
+                    Mi = z * (p['mz'] - PROTON_MASS)
+                    if Mi <= 0:
+                        continue
+                    if abs(Mi - M0) / M0 <= mw_agreement:
+                        if use_mz_agreement:
+                            mz_pred = (M0 + z * PROTON_MASS) / z
+                            if abs(p['mz'] - mz_pred) / mz_pred > mw_agreement:
+                                continue
+                        diff = abs(Mi - M0)
+                        if best is None or diff < best[0]:
+                            best = (diff, z, Mi)
+                if best is not None:
+                    ions.append({
+                        'mz': p['mz'],
+                        'intensity': p['intensity'],
+                        'charge': best[1],
+                        'mass': best[2],
+                        'index': p['index']
+                    })
+                    ion_indices.add(p['index'])
+
+            if len(ions) < min_peaks:
+                continue
+
+            charges = sorted(set(i['charge'] for i in ions))
+            # Enforce contiguous ladder minimum if requested
+            if contig_min > 1:
+                longest = 1
+                current = 1
+                for i in range(1, len(charges)):
+                    if charges[i] == charges[i - 1] + 1:
+                        current += 1
+                        longest = max(longest, current)
+                    else:
+                        current = 1
+                if longest < contig_min:
+                    continue
+
+            intensities = [i['intensity'] for i in ions]
+            r2 = _gaussian_fit_r2(charges, intensities)
+            envelope_ok = r2 >= envelope_cutoff
+
+            strong = [i for i in ions if i['intensity'] >= anchor_int * mw_assign_cutoff]
+            if len(strong) < min_peaks:
+                strong = ions
+
+            # Calculate mass using FIXED proton mass and intensity-weighted average
+            # This approach works better than regression for unit-mass or low-resolution data
+            # because regression can't accurately fit both M and H with limited m/z precision
+            #
+            # For each ion: M = z * (mz - H)
+            # Then take intensity-weighted average of all mass estimates
+            intensities_arr = np.array([i['intensity'] for i in ions])
+            masses_arr = np.array([i['mass'] for i in ions])  # Already calculated as z*(mz-H)
+
+            # Intensity-weighted average (like Agilent's approach)
+            weights = intensities_arr / intensities_arr.sum()
+            M_fit = float(np.sum(masses_arr * weights))
+
+            # Alternative: also try regression and compare
+            # If regression gives a proton mass close to expected, use its result
+            try:
+                if len(ions) >= 3 and intensities_arr.max() > 0:
+                    z_inv = np.array([1.0 / i['charge'] for i in ions])
+                    mz_vals = np.array([i['mz'] for i in ions])
+                    A = np.vstack([z_inv, np.ones_like(z_inv)]).T
+                    W = np.diag(intensities_arr / intensities_arr.max())
+                    # Check for valid weights before lstsq
+                    if np.all(np.isfinite(W)) and np.all(np.isfinite(A)):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            coeffs = np.linalg.lstsq(W @ A, W @ mz_vals, rcond=None)[0]
+                        M_regr = float(coeffs[0])
+                        H_regr = float(coeffs[1])
+                        # Only use regression result if proton mass is reasonable (within 0.1 Da)
+                        if np.isfinite(M_regr) and np.isfinite(H_regr):
+                            if abs(H_regr - PROTON_MASS) < 0.1:
+                                M_fit = M_regr
+            except Exception:
+                pass  # Keep the weighted average result
+
+            if not envelope_ok:
+                M_fit = float(np.median([i['mass'] for i in ions]))
+
+            group_masses = [i['mass'] for i in ions]
+            group_charges = [i['charge'] for i in ions]
+            total_intensity = float(sum(intensities))
+
+            # Bin m/z values for m/z-based deduplication (0.5 Da bins)
+            ion_mzs = set(int(i['mz'] * 2) for i in ions)
+
+            candidate = {
+                'mass': M_fit,
+                'mass_std': float(np.std(group_masses)),
+                'charge_states': sorted(set(group_charges)),
+                'num_charges': len(set(group_charges)),
+                'intensity': total_intensity,
+                'peaks_found': len(ions),
+                'r2': r2,
+                'anchor_idx': anchor_idx,
+                '_ion_indices': ion_indices,  # Internal: for overlap checking
+                '_ion_mzs': ion_mzs,  # Internal: binned m/z values
+                '_ions': ions  # Internal: full ion list for recalculation
+            }
+            all_candidates.append(candidate)
+
+    if not all_candidates:
+        return []
+
+    # Sort candidates by quality: num_charges (desc), then intensity (desc)
+    all_candidates.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)
+
+    # Deferred selection: pick best non-overlapping candidates
+    # Use moderate overlap (15%) to detect related species while preventing double-counting
+    results = []
+    used_ions = set()
+    used_mzs = set()  # Track used m/z values (binned) for stricter deduplication
+    MAX_OVERLAP = 0.15  # Allow 15% overlap to detect related species
+
+    for candidate in all_candidates:
+        ion_indices = candidate['_ion_indices']
+        ion_mzs = candidate.get('_ion_mzs', set())
+        if not ion_indices:
+            continue
+
+        # Check overlap with already selected sets
+        overlap_count = len(ion_indices & used_ions)
+        overlap_ratio = overlap_count / len(ion_indices)
+
+        if overlap_ratio <= MAX_OVERLAP:
+            # Check if this mass is too close to an already-selected mass
+            mass_duplicate = False
+            for r in results:
+                if abs(r['mass'] - candidate['mass']) / candidate['mass'] < 0.002:  # 0.2% mass tolerance
+                    mass_duplicate = True
+                    break
+
+            if not mass_duplicate:
+                # Recalculate mass using ONLY non-overlapping ions
+                # This ensures we get accurate mass even when there's partial overlap
+                recalc_ions = [ion for ion in candidate.get('_ions', [])
+                               if ion['index'] not in used_ions]
+
+                if len(recalc_ions) >= min_peaks:
+                    # Recalculate mass with clean ion set
+                    intensities_arr = np.array([i['intensity'] for i in recalc_ions])
+                    masses_arr = np.array([i['mass'] for i in recalc_ions])
+                    weights = intensities_arr / intensities_arr.sum()
+                    recalc_mass = float(np.sum(masses_arr * weights))
+
+                    # Update candidate with recalculated values
+                    result = {
+                        'mass': recalc_mass,
+                        'mass_std': float(np.std(masses_arr)),
+                        'charge_states': sorted(set(i['charge'] for i in recalc_ions)),
+                        'num_charges': len(set(i['charge'] for i in recalc_ions)),
+                        'intensity': float(sum(i['intensity'] for i in recalc_ions)),
+                        'peaks_found': len(recalc_ions),
+                        'r2': candidate['r2']
+                    }
+                else:
+                    # Fall back to original calculation if not enough clean ions
+                    result = {k: v for k, v in candidate.items() if not k.startswith('_')}
+
+                results.append(result)
+                used_ions.update(ion_indices)
+                used_mzs.update(ion_mzs)
+
+    # Final sort by quality
+    results.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)
+    return results
+
+
+def detect_singly_charged(
+    mz: np.ndarray,
+    intensity: np.ndarray,
+    noise_cutoff: float = 1000.0,
+    min_intensity_pct: float = 1.0,
+    low_mw: float = 100.0,
+    high_mw: float = 2000.0,
+    pwhh: float = 0.6,
+    exclude_mz_ranges: list = None,
+    use_monoisotopic_proton: bool = False,
+) -> list[dict]:
+    """
+    Detect singly-charged (z=1) species like small molecules.
+
+    These appear as [M+H]+ peaks and cannot be detected by charge ladder
+    deconvolution since they have only one peak.
+
+    Args:
+        mz: m/z array
+        intensity: intensity array
+        noise_cutoff: minimum intensity threshold
+        min_intensity_pct: minimum intensity as % of base peak
+        low_mw: minimum mass to report
+        high_mw: maximum mass to report
+        pwhh: peak width at half height for smoothing
+        exclude_mz_ranges: list of (min, max) tuples to exclude (e.g., charge envelopes)
+        use_monoisotopic_proton: proton mass selection
+
+    Returns:
+        List of detected z=1 species with mass, mz, intensity
+    """
+    PROTON_MASS = 1.007276 if use_monoisotopic_proton else 1.00784
+
+    if len(mz) == 0 or len(intensity) == 0:
+        return []
+
+    # Smooth spectrum
+    inten = _smooth_spectrum(mz, intensity, pwhh)
+
+    # Find peaks
+    resolution = float(np.median(np.diff(mz))) if len(mz) > 1 else 1.0
+    min_distance_pts = max(2, int(pwhh / resolution)) if resolution > 0 else 2
+    peak_idx = _find_peaks_simple(inten, min_distance_pts=min_distance_pts)
+
+    # Get peaks above noise
+    peaks = []
+    for idx in peak_idx:
+        if inten[idx] < noise_cutoff:
+            continue
+        centroid_mz = _parabolic_centroid(mz, inten, idx)
+        peaks.append({
+            'mz': centroid_mz,
+            'intensity': float(inten[idx]),
+            'index': idx
+        })
+
+    if not peaks:
+        return []
+
+    # Filter by intensity percentage
+    max_intensity = max(p['intensity'] for p in peaks)
+    min_intensity = max_intensity * min_intensity_pct / 100.0
+
+    results = []
+    for p in peaks:
+        if p['intensity'] < min_intensity:
+            continue
+
+        # Calculate mass assuming z=1: mass = mz - proton
+        mass = p['mz'] - PROTON_MASS
+
+        # Check mass range
+        if mass < low_mw or mass > high_mw:
+            continue
+
+        # Check if m/z is in excluded range (e.g., within a charge envelope)
+        if exclude_mz_ranges:
+            excluded = False
+            for mz_min, mz_max in exclude_mz_ranges:
+                if mz_min <= p['mz'] <= mz_max:
+                    excluded = True
+                    break
+            if excluded:
+                continue
+
+        results.append({
+            'mass': mass,
+            'mass_std': 0.0,
+            'charge_states': [1],
+            'num_charges': 1,
+            'intensity': p['intensity'],
+            'peaks_found': 1,
+            'r2': 1.0,
+            'mz': p['mz']
+        })
+
+    # Sort by intensity
+    results.sort(key=lambda x: x['intensity'], reverse=True)
+    return results
+
+
+def get_theoretical_mz(mass: float, charge_states: list[int],
+                       use_monoisotopic_proton: bool = False) -> list[dict]:
     """
     Calculate theoretical m/z values for a given mass and charge states.
 
     Args:
         mass: Neutral mass in Da
         charge_states: List of charge states
+        use_monoisotopic_proton: If True, use 1.007276; if False, use 1.00784
 
     Returns:
         List of dicts with charge and mz
     """
-    PROTON_MASS = 1.00784
+    PROTON_MASS = 1.007276 if use_monoisotopic_proton else 1.00784
 
     result = []
     for z in charge_states:
