@@ -621,7 +621,7 @@ def sidebar_file_browser():
                 key="path_display",
             )
         with go_col:
-            if st.button("Go", width='stretch'):
+            if st.button("Go", use_container_width=True):
                 if new_path and Path(new_path).exists():
                     st.session_state.current_path = new_path
                     st.rerun()
@@ -635,19 +635,19 @@ def sidebar_file_browser():
             drive_cols = st.columns(min(len(drives), 4))
             for i, drive in enumerate(drives):
                 with drive_cols[i % len(drive_cols)]:
-                    if st.button(drive, key=f"drive_{drive}", width='stretch'):
+                    if st.button(drive, key=f"drive_{drive}", use_container_width=True):
                         st.session_state.current_path = drive
                         st.rerun()
 
         # Navigation buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("↑ Up", width='stretch'):
+            if st.button("↑ Up", use_container_width=True):
                 parent = str(Path(current_path).parent)
                 st.session_state.current_path = parent
                 st.rerun()
         with col2:
-            if st.button("⌂ Home", width='stretch'):
+            if st.button("⌂ Home", use_container_width=True):
                 st.session_state.current_path = config.BASE_PATH
                 st.rerun()
 
@@ -664,7 +664,7 @@ def sidebar_file_browser():
         if subfolders:
             st.caption("Folders")
             for folder in subfolders:
-                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", width='stretch'):
+                if st.button(f"{folder['name']}", key=f"folder_{folder['path']}", use_container_width=True):
                     st.session_state.current_path = folder['path']
                     st.rerun()
 
@@ -715,7 +715,7 @@ def sidebar_file_browser():
                         st.session_state.selected_files.remove(path)
                         st.rerun()
 
-            if st.button("Clear all", width='stretch'):
+            if st.button("Clear all", use_container_width=True):
                 st.session_state.selected_files = []
                 st.rerun()
 
