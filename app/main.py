@@ -1862,10 +1862,25 @@ def main():
     samples = load_samples(selected_files)
     sample_list = [samples[p] for p in selected_files]
 
-    # Analysis tabs - always show all 4 tabs for consistent navigation
-    tab1, tab2, tab3, tab4 = st.tabs(["Single Sample", "EIC Batch", "Deconvolution", "Time Progression"])
+    # Initialize active tab in session state
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "Single Sample"
 
-    with tab1:
+    # Tab selector using radio buttons (preserves state across reruns)
+    tab_options = ["Single Sample", "EIC Batch", "Deconvolution", "Time Progression"]
+    active_tab = st.radio(
+        "Analysis",
+        tab_options,
+        index=tab_options.index(st.session_state.active_tab) if st.session_state.active_tab in tab_options else 0,
+        horizontal=True,
+        key="tab_selector",
+        label_visibility="collapsed"
+    )
+    st.session_state.active_tab = active_tab
+
+    st.divider()
+
+    if active_tab == "Single Sample":
         if len(selected_files) == 1:
             single_sample_analysis(sample_list[0], settings)
         else:
@@ -1874,7 +1889,7 @@ def main():
             selected_idx = sample_names.index(selected_name)
             single_sample_analysis(sample_list[selected_idx], settings)
 
-    with tab2:
+    elif active_tab == "EIC Batch":
         if len(selected_files) == 1:
             eic_batch_analysis(sample_list[0], settings)
         else:
@@ -1883,7 +1898,7 @@ def main():
             selected_idx = sample_names.index(selected_name)
             eic_batch_analysis(sample_list[selected_idx], settings)
 
-    with tab3:
+    elif active_tab == "Deconvolution":
         if len(selected_files) == 1:
             deconvolution_analysis(sample_list[0], settings)
         else:
@@ -1892,7 +1907,7 @@ def main():
             selected_idx = sample_names.index(selected_name)
             deconvolution_analysis(sample_list[selected_idx], settings)
 
-    with tab4:
+    elif active_tab == "Time Progression":
         if len(selected_files) == 1:
             st.info("Select multiple samples to enable Time Progression analysis.")
         else:
