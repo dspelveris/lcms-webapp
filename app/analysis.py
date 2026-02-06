@@ -888,8 +888,10 @@ def deconvolute_protein_agilent_like(
             except Exception:
                 pass  # Keep the weighted average result
 
-            if not envelope_ok:
-                M_fit = float(np.median([i['mass'] for i in ions]))
+            # R² is stored for informational purposes only — do NOT override
+            # the intensity-weighted / regression mass with median when R² is low.
+            # Broad envelopes (e.g. 27 charge states) can have low R² but the
+            # weighted average is still the most accurate mass estimate.
 
             group_masses = [i['mass'] for i in ions]
             group_charges = [i['charge'] for i in ions]
@@ -919,16 +921,15 @@ def deconvolute_protein_agilent_like(
     # Sort candidates by quality: num_charges (desc), then intensity (desc)
     all_candidates.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)
 
-    # Deferred selection: pick best non-overlapping candidates
-    # Use moderate overlap (15%) to detect related species while preventing double-counting
+    # Deferred selection: pick best candidates allowing significant ion sharing.
+    # Different-mass species genuinely share m/z peaks at different charge states,
+    # so we use a generous overlap allowance and rely on mass uniqueness instead.
     results = []
     used_ions = set()
-    used_mzs = set()  # Track used m/z values (binned) for stricter deduplication
-    MAX_OVERLAP = 0.15  # Allow 15% overlap to detect related species
+    MAX_OVERLAP = 0.50  # Allow 50% ion overlap — species share peaks at different z
 
     for candidate in all_candidates:
         ion_indices = candidate['_ion_indices']
-        ion_mzs = candidate.get('_ion_mzs', set())
         if not ion_indices:
             continue
 
@@ -938,42 +939,43 @@ def deconvolute_protein_agilent_like(
 
         if overlap_ratio <= MAX_OVERLAP:
             # Check if this mass is too close to an already-selected mass
+            # AND has overlapping charge state ranges (same mass + same charges = true duplicate)
+            cand_charges = set(candidate['charge_states'])
             mass_duplicate = False
             for r in results:
-                if abs(r['mass'] - candidate['mass']) / candidate['mass'] < 0.002:  # 0.2% mass tolerance
-                    mass_duplicate = True
-                    break
+                mass_diff_pct = abs(r['mass'] - candidate['mass']) / candidate['mass']
+                if mass_diff_pct < 0.00005:  # 50 ppm (0.005%) — tight enough to resolve 1.27 Da at 15.7 kDa
+                    # Only consider it a duplicate if charge ranges also overlap significantly
+                    r_charges = set(r['charge_states'])
+                    charge_overlap = len(cand_charges & r_charges)
+                    if charge_overlap > 0:
+                        mass_duplicate = True
+                        break
 
             if not mass_duplicate:
-                # Recalculate mass using ONLY non-overlapping ions
-                # This ensures we get accurate mass even when there's partial overlap
-                recalc_ions = [ion for ion in candidate.get('_ions', [])
-                               if ion['index'] not in used_ions]
-
-                if len(recalc_ions) >= min_peaks:
-                    # Recalculate mass with clean ion set
-                    intensities_arr = np.array([i['intensity'] for i in recalc_ions])
-                    masses_arr = np.array([i['mass'] for i in recalc_ions])
+                # Use ALL ions in the candidate set for mass calculation.
+                # Ion sharing between species is expected and does not hurt accuracy.
+                ions = candidate.get('_ions', [])
+                if len(ions) >= min_peaks:
+                    intensities_arr = np.array([i['intensity'] for i in ions])
+                    masses_arr = np.array([i['mass'] for i in ions])
                     weights = intensities_arr / intensities_arr.sum()
-                    recalc_mass = float(np.sum(masses_arr * weights))
+                    calc_mass = float(np.sum(masses_arr * weights))
 
-                    # Update candidate with recalculated values
                     result = {
-                        'mass': recalc_mass,
+                        'mass': calc_mass,
                         'mass_std': float(np.std(masses_arr)),
-                        'charge_states': sorted(set(i['charge'] for i in recalc_ions)),
-                        'num_charges': len(set(i['charge'] for i in recalc_ions)),
-                        'intensity': float(sum(i['intensity'] for i in recalc_ions)),
-                        'peaks_found': len(recalc_ions),
+                        'charge_states': sorted(set(i['charge'] for i in ions)),
+                        'num_charges': len(set(i['charge'] for i in ions)),
+                        'intensity': float(sum(i['intensity'] for i in ions)),
+                        'peaks_found': len(ions),
                         'r2': candidate['r2']
                     }
                 else:
-                    # Fall back to original calculation if not enough clean ions
                     result = {k: v for k, v in candidate.items() if not k.startswith('_')}
 
                 results.append(result)
                 used_ions.update(ion_indices)
-                used_mzs.update(ion_mzs)
 
     # Final sort by quality
     results.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)

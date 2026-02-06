@@ -1568,7 +1568,7 @@ def deconvolution_analysis(sample, settings):
     with st.expander("Deconvolution Parameters", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
-            low_mw = st.number_input("Low MW (Da)", min_value=100, max_value=500000, value=10000, step=100)
+            low_mw = st.number_input("Low MW (Da)", min_value=100, max_value=500000, value=500, step=100)
         with col2:
             high_mw = st.number_input("High MW (Da)", min_value=100, max_value=500000, value=50000, step=1000)
 
