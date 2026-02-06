@@ -552,8 +552,14 @@ def extract_apex_spectrum(sample, start_time: float, end_time: float, n_scans: i
     return mz, intensity
 
 
-def render_text_table(rows: list[dict], columns: list[str]) -> None:
-    """Render a simple ASCII table to avoid pyarrow dependency."""
+def render_text_table(rows: list[dict], columns: list[str], max_lines: int = 0) -> None:
+    """Render a simple ASCII table to avoid pyarrow dependency.
+
+    Args:
+        rows: List of row dictionaries
+        columns: Column names
+        max_lines: If > 0, show scrollable container with this many visible lines
+    """
     if not rows:
         st.info("No results to display.")
         return
@@ -572,7 +578,18 @@ def render_text_table(rows: list[dict], columns: list[str]) -> None:
     lines = [header, sep]
     for row in rows:
         lines.append(fmt_row([row.get(col, "") for col in columns]))
-    st.code("\n".join(lines), language="text")
+
+    if max_lines > 0 and len(rows) > max_lines:
+        # Calculate height: ~1.4em per line, plus header and separator
+        height_px = int((max_lines + 2) * 22)  # ~22px per line in code block
+        st.markdown(
+            f'<div style="max-height: {height_px}px; overflow-y: auto;">'
+            f'<pre style="margin: 0; padding: 0.5em; background: #262730; color: #fafafa; '
+            f'border-radius: 0.25rem; font-size: 14px;">{chr(10).join(lines)}</pre></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.code("\n".join(lines), language="text")
 
 
 def get_windows_drives() -> list[str]:
@@ -1744,7 +1761,7 @@ def deconvolution_analysis(sample, settings):
                     'Charge': f"+{t['charge']}",
                     'm/z': f"{t['mz']:.4f}"
                 })
-            render_text_table(theo_data, list(theo_data[0].keys()) if theo_data else [])
+            render_text_table(theo_data, list(theo_data[0].keys()) if theo_data else [], max_lines=5)
 
         # Export buttons
         col1, col2, col3 = st.columns(3)

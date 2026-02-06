@@ -831,13 +831,13 @@ def deconvolute_protein_agilent_like(
             if len(ions) < min_peaks:
                 continue
 
-            charges = sorted(set(i['charge'] for i in ions))
+            ion_charges = sorted(set(i['charge'] for i in ions))
             # Enforce contiguous ladder minimum if requested
             if contig_min > 1:
                 longest = 1
                 current = 1
-                for i in range(1, len(charges)):
-                    if charges[i] == charges[i - 1] + 1:
+                for i in range(1, len(ion_charges)):
+                    if ion_charges[i] == ion_charges[i - 1] + 1:
                         current += 1
                         longest = max(longest, current)
                     else:
@@ -846,7 +846,7 @@ def deconvolute_protein_agilent_like(
                     continue
 
             intensities = [i['intensity'] for i in ions]
-            r2 = _gaussian_fit_r2(charges, intensities)
+            r2 = _gaussian_fit_r2(ion_charges, intensities)
             envelope_ok = r2 >= envelope_cutoff
 
             strong = [i for i in ions if i['intensity'] >= anchor_int * mw_assign_cutoff]
