@@ -1635,8 +1635,55 @@ def deconvolution_analysis(sample, settings):
                     help="Use monoisotopic proton mass (1.007276) instead of average (1.00784). Try toggling if masses are ~1-2 Da off."
                 )
 
+    def _longest_contiguous_run(charges):
+        """Return longest run of consecutive charge states."""
+        if not charges:
+            return 0
+        charge_list = sorted(set(int(c) for c in charges))
+        longest = 1
+        current = 1
+        for i in range(1, len(charge_list)):
+            if charge_list[i] == charge_list[i - 1] + 1:
+                current += 1
+                longest = max(longest, current)
+            else:
+                current = 1
+        return longest
+
+    def _is_trustworthy_protein_component(result):
+        """Heuristic: protein envelopes should have many contiguous charges."""
+        charge_states = result.get('charge_states', [])
+        num_charges = len(set(charge_states))
+        if num_charges < 8:
+            return False
+        longest = _longest_contiguous_run(charge_states)
+        return longest >= 6 and (longest / num_charges) >= 0.60
+
+    def _needs_low_mw_profile(primary_results):
+        """
+        Decide whether to switch from default protein profile to low-MW profile.
+
+        If no strong, trustworthy protein envelope appears in top results, run a
+        low-MW fallback profile (charges 2-8).
+        """
+        if not primary_results:
+            return True
+
+        ranked = sorted(primary_results, key=lambda x: x.get('intensity', 0.0), reverse=True)
+        top = ranked[:3]
+        top_intensity = float(top[0].get('intensity', 0.0)) if top else 0.0
+        if top_intensity <= 0:
+            return True
+
+        for result in top:
+            rel_intensity = float(result.get('intensity', 0.0)) / top_intensity
+            if rel_intensity >= 0.25 and _is_trustworthy_protein_component(result):
+                return False
+        return True
+
     def run_deconvolution():
         with st.spinner("Running deconvolution..."):
+            auto_profile_note = None
             if method == "Agilent-like":
                 results = deconvolute_protein_agilent_like(
                     mz, intensity,
@@ -1655,6 +1702,35 @@ def deconvolution_analysis(sample, settings):
                     use_mz_agreement=use_mz_agreement,
                     use_monoisotopic_proton=use_monoisotopic
                 )
+
+                auto_profile_note = "Profile: Protein (auto)"
+
+                # Default mode fallback for low-MW datasets (e.g., 3-5 kDa species).
+                # Keep expert mode unchanged so manual tuning remains explicit.
+                if not expert_mode and _needs_low_mw_profile(results):
+                    low_profile_min = max(float(low_mw), 2000.0)
+                    low_profile_max = min(float(high_mw), 10000.0)
+                    if low_profile_min < low_profile_max:
+                        low_results = deconvolute_protein_agilent_like(
+                            mz, intensity,
+                            min_charge=2,
+                            max_charge=8,
+                            min_peaks=max(3, int(min_peaks)),
+                            noise_cutoff=noise_cutoff,
+                            abundance_cutoff=min(abundance_cutoff_pct / 100.0, 0.05),
+                            mw_agreement=mw_agreement_pct / 100.0,
+                            mw_assign_cutoff=mw_assign_cutoff_pct / 100.0,
+                            envelope_cutoff=envelope_cutoff_pct / 100.0,
+                            pwhh=pwhh,
+                            low_mw=low_profile_min,
+                            high_mw=low_profile_max,
+                            contig_min=2,
+                            use_mz_agreement=use_mz_agreement,
+                            use_monoisotopic_proton=use_monoisotopic
+                        )
+                        if low_results:
+                            results = low_results
+                            auto_profile_note = "Profile: Low MW (auto fallback)"
             else:
                 results = deconvolute_protein(
                     mz, intensity,
@@ -1688,6 +1764,7 @@ def deconvolution_analysis(sample, settings):
             st.session_state.deconv_results = results
             st.session_state.deconv_mw_range = (low_mw, high_mw)
             st.session_state.deconv_use_monoisotopic = use_monoisotopic
+            st.session_state.deconv_auto_profile_note = auto_profile_note
 
     autorun_sig = (
         sample.name,
@@ -1732,6 +1809,9 @@ def deconvolution_analysis(sample, settings):
 
         # Build info caption
         caption_parts = []
+        auto_profile_note = st.session_state.get('deconv_auto_profile_note')
+        if auto_profile_note and not expert_mode:
+            caption_parts.append(auto_profile_note)
         if expert_mode:
             caption_parts.append(f"Method: {method}")
             apex_info = f" ({apex_n_scans} scans)" if extraction_mode == "Peak apex" else ""
