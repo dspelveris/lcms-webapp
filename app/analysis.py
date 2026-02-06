@@ -627,18 +627,23 @@ def _find_peaks_simple(intensity: np.ndarray, min_distance_pts: int = 2) -> list
     for i in range(1, len(intensity) - 1):
         if intensity[i] >= intensity[i - 1] and intensity[i] >= intensity[i + 1]:
             peak_idx.append(i)
-    # Enforce min distance (greedy by intensity)
-    # Check distance from ALL previously added peaks, not just the last one
+
+    if not peak_idx:
+        return []
+
+    # OPTIMIZATION: Use a set for O(1) lookup instead of O(n) list scan
+    # Mark indices that are "blocked" by higher-intensity peaks
+    blocked = set()
     filtered = []
+
     for idx in sorted(peak_idx, key=lambda x: intensity[x], reverse=True):
-        # Check if this peak is far enough from all already-selected peaks
-        too_close = False
-        for existing_idx in filtered:
-            if abs(idx - existing_idx) < min_distance_pts:
-                too_close = True
-                break
-        if not too_close:
-            filtered.append(idx)
+        if idx in blocked:
+            continue
+        filtered.append(idx)
+        # Block nearby indices
+        for offset in range(-min_distance_pts + 1, min_distance_pts):
+            blocked.add(idx + offset)
+
     return sorted(filtered)
 
 
@@ -751,49 +756,77 @@ def deconvolute_protein_agilent_like(
     if len(peaks) < min_peaks:
         return []
 
+    # OPTIMIZATION: Limit number of anchor peaks to top N by intensity
+    max_anchors = min(30, len(peaks))  # Only use top 30 peaks as anchors
+
+    # OPTIMIZATION: Pre-compute all possible masses for each peak at each charge
+    # This avoids redundant calculations in the inner loop
+    peak_mzs = np.array([p['mz'] for p in peaks])
+    peak_ints = np.array([p['intensity'] for p in peaks])
+    charges = np.arange(min_charge, max_charge + 1)
+
+    # Pre-compute mass matrix: masses[i, j] = mass of peak i at charge j
+    # Shape: (num_peaks, num_charges)
+    masses_matrix = np.outer(peak_mzs - PROTON_MASS, charges)  # Each row is a peak, each col is a charge
+
     # Collect ALL candidate ion sets first (deferred selection)
     all_candidates = []
 
-    for anchor in peaks:
+    for anchor_idx_in_list in range(max_anchors):
+        anchor = peaks[anchor_idx_in_list]
         anchor_mz = anchor['mz']
         anchor_int = anchor['intensity']
         anchor_idx = anchor['index']
 
-        for z0 in range(min_charge, max_charge + 1):
-            M0 = z0 * (anchor_mz - PROTON_MASS)
-            if M0 < low_mw or M0 > high_mw:
+        # OPTIMIZATION: Only try charge states that give valid masses
+        anchor_masses = (anchor_mz - PROTON_MASS) * charges
+        valid_z_mask = (anchor_masses >= low_mw) & (anchor_masses <= high_mw)
+
+        for z_idx, z0 in enumerate(charges):
+            if not valid_z_mask[z_idx]:
                 continue
+
+            M0 = anchor_masses[z_idx]
 
             ions = []
             ion_indices = set()
-            for p in peaks:
-                if p['intensity'] < noise_cutoff:
-                    continue
-                if p['intensity'] < anchor_int * abundance_cutoff:
+
+            # OPTIMIZATION: Vectorized abundance filter
+            intensity_mask = peak_ints >= max(noise_cutoff, anchor_int * abundance_cutoff)
+
+            for p_idx, p in enumerate(peaks):
+                if not intensity_mask[p_idx]:
                     continue
 
-                best = None
-                for z in range(min_charge, max_charge + 1):
-                    Mi = z * (p['mz'] - PROTON_MASS)
-                    if Mi <= 0:
+                # OPTIMIZATION: Vectorized mass matching
+                # Check all charges at once for this peak
+                peak_masses = masses_matrix[p_idx]  # All masses for this peak
+                mass_errors = np.abs(peak_masses - M0) / M0
+
+                # Find charges within tolerance
+                matching = mass_errors <= mw_agreement
+                if not np.any(matching):
+                    continue
+
+                # Get best matching charge (smallest error)
+                matching_indices = np.where(matching)[0]
+                best_idx = matching_indices[np.argmin(mass_errors[matching_indices])]
+                best_z = charges[best_idx]
+                best_mass = peak_masses[best_idx]
+
+                if use_mz_agreement:
+                    mz_pred = (M0 + best_z * PROTON_MASS) / best_z
+                    if abs(p['mz'] - mz_pred) / mz_pred > mw_agreement:
                         continue
-                    if abs(Mi - M0) / M0 <= mw_agreement:
-                        if use_mz_agreement:
-                            mz_pred = (M0 + z * PROTON_MASS) / z
-                            if abs(p['mz'] - mz_pred) / mz_pred > mw_agreement:
-                                continue
-                        diff = abs(Mi - M0)
-                        if best is None or diff < best[0]:
-                            best = (diff, z, Mi)
-                if best is not None:
-                    ions.append({
-                        'mz': p['mz'],
-                        'intensity': p['intensity'],
-                        'charge': best[1],
-                        'mass': best[2],
-                        'index': p['index']
-                    })
-                    ion_indices.add(p['index'])
+
+                ions.append({
+                    'mz': p['mz'],
+                    'intensity': p['intensity'],
+                    'charge': int(best_z),
+                    'mass': float(best_mass),
+                    'index': p['index']
+                })
+                ion_indices.add(p['index'])
 
             if len(ions) < min_peaks:
                 continue
