@@ -124,7 +124,8 @@ import config
 from data_reader import list_d_folders_cached, read_sample_cached, check_rainbow_available
 from analysis import (
     extract_eic, smooth_data, calculate_peak_area, find_peaks, find_spectrum_peaks,
-    sum_spectra_in_range, deconvolute_protein, deconvolute_protein_agilent_like, get_theoretical_mz
+    sum_spectra_in_range, deconvolute_protein, deconvolute_protein_agilent_like,
+    detect_singly_charged, get_theoretical_mz
 )
 from plotting import (
     create_single_sample_figure,
@@ -1649,6 +1650,25 @@ def deconvolution_analysis(sample, settings):
                 )
 
             results = [r for r in results if low_mw <= r['mass'] <= high_mw]
+
+            # Merge singly-charged (z=1) species into results.
+            # Agilent reports z=1 species even when their m/z overlaps with
+            # charge-envelope peaks — both assignments are valid.
+            if method == "Agilent-like":
+                singly = detect_singly_charged(
+                    mz, intensity,
+                    noise_cutoff=noise_cutoff,
+                    min_intensity_pct=abundance_cutoff_pct,
+                    low_mw=low_mw,
+                    high_mw=min(high_mw, 2000.0),
+                    pwhh=pwhh,
+                    use_monoisotopic_proton=use_monoisotopic,
+                )
+                results.extend(singly)
+
+            # Sort all results by intensity descending
+            results.sort(key=lambda x: x['intensity'], reverse=True)
+
             st.session_state.deconv_results = results
             st.session_state.deconv_mw_range = (low_mw, high_mw)
             st.session_state.deconv_use_monoisotopic = use_monoisotopic
