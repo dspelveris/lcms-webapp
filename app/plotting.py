@@ -613,7 +613,7 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
     fig = plt.figure(figsize=(fig_width, 5.5))  # Smaller, less zoomed in
 
     # Create grid: top row for chromatogram, bottom left for spectrum, bottom right for deconv
-    gs = fig.add_gridspec(2, 2, height_ratios=[1, 2], hspace=0.3, wspace=0.3)
+    gs = fig.add_gridspec(2, 2, height_ratios=[1, 2], hspace=0.45, wspace=0.3)
 
     # Top: TIC with selected region highlighted
     ax_tic = fig.add_subplot(gs[0, :])

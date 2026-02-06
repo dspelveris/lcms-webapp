@@ -2,7 +2,7 @@
 
 import os
 
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 
 def get_default_path():
     """Get a sensible default path for LC-MS data."""

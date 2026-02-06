@@ -675,7 +675,7 @@ def sidebar_file_browser():
             # Sort options
             col1, col2 = st.columns(2)
             with col1:
-                sort_by = st.selectbox("Sort by", ["Name (A-Z)", "Name (Z-A)", "Date (Newest)", "Date (Oldest)"], key="sort_option")
+                sort_by = st.selectbox("Sort by", ["Date (Newest)", "Date (Oldest)", "Name (A-Z)", "Name (Z-A)"], key="sort_option")
 
             if sort_by == "Name (A-Z)":
                 d_folders.sort(key=lambda x: x['name'].lower())
@@ -1905,7 +1905,7 @@ def main():
         st.session_state.active_tab = "Single Sample"
 
     # Auto-switch to Deconvolution tab for C4 method samples
-    if len(sample_list) == 1 and sample_list[0].is_c4_method:
+    if len(sample_list) == 1 and getattr(sample_list[0], 'is_c4_method', False):
         # Only auto-switch once per sample (not on every rerun)
         current_sample_name = sample_list[0].name
         if st.session_state.get('_c4_auto_switched') != current_sample_name:
