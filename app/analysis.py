@@ -977,6 +977,109 @@ def deconvolute_protein_agilent_like(
                 results.append(result)
                 used_ions.update(ion_indices)
 
+    # ── Residual second pass ──────────────────────────────────────────────
+    # Collect peaks not claimed by any selected result and run a second
+    # deconvolution pass with relaxed contiguity to recover weak species
+    # (e.g. small proteins whose charge ladder was suppressed by overlap).
+    all_peak_indices = set(p['index'] for p in peaks)
+    residual_indices = all_peak_indices - used_ions
+
+    if len(residual_indices) >= min_peaks:
+        residual_peaks = [p for p in peaks if p['index'] in residual_indices]
+        residual_peaks.sort(key=lambda p: p['intensity'], reverse=True)
+
+        max_residual_anchors = min(15, len(residual_peaks))
+        residual_peak_mzs = np.array([p['mz'] for p in residual_peaks])
+        residual_peak_ints = np.array([p['intensity'] for p in residual_peaks])
+        residual_masses_matrix = np.outer(residual_peak_mzs - PROTON_MASS, charges)
+
+        residual_candidates = []
+        for anchor_idx_r in range(max_residual_anchors):
+            anchor = residual_peaks[anchor_idx_r]
+            anchor_mz = anchor['mz']
+            anchor_int = anchor['intensity']
+            anchor_masses = (anchor_mz - PROTON_MASS) * charges
+            valid_z_mask = (anchor_masses >= low_mw) & (anchor_masses <= high_mw)
+
+            for z_idx, z0 in enumerate(charges):
+                if not valid_z_mask[z_idx]:
+                    continue
+                M0 = anchor_masses[z_idx]
+                ions = []
+                ion_indices_r = set()
+                intensity_mask = residual_peak_ints >= max(noise_cutoff, anchor_int * abundance_cutoff)
+
+                for p_idx, p in enumerate(residual_peaks):
+                    if not intensity_mask[p_idx]:
+                        continue
+                    peak_masses = residual_masses_matrix[p_idx]
+                    mass_errors = np.abs(peak_masses - M0) / M0
+                    matching = mass_errors <= mw_agreement
+                    if not np.any(matching):
+                        continue
+                    matching_indices = np.where(matching)[0]
+                    best_idx = matching_indices[np.argmin(mass_errors[matching_indices])]
+                    best_z = charges[best_idx]
+                    best_mass = peak_masses[best_idx]
+                    ions.append({
+                        'mz': p['mz'], 'intensity': p['intensity'],
+                        'charge': int(best_z), 'mass': float(best_mass), 'index': p['index']
+                    })
+                    ion_indices_r.add(p['index'])
+
+                if len(ions) < min_peaks:
+                    continue
+                # Relaxed contiguity for second pass
+                ion_charges = sorted(set(i['charge'] for i in ions))
+                if len(ion_charges) >= 2:
+                    longest = 1
+                    current = 1
+                    for ic in range(1, len(ion_charges)):
+                        if ion_charges[ic] == ion_charges[ic - 1] + 1:
+                            current += 1
+                            longest = max(longest, current)
+                        else:
+                            current = 1
+                    if longest < 2:
+                        continue
+
+                intensities_arr = np.array([i['intensity'] for i in ions])
+                masses_arr = np.array([i['mass'] for i in ions])
+                weights = intensities_arr / intensities_arr.sum()
+                M_fit = float(np.sum(masses_arr * weights))
+                r2 = _gaussian_fit_r2(ion_charges, [i['intensity'] for i in ions])
+
+                residual_candidates.append({
+                    'mass': M_fit,
+                    'mass_std': float(np.std(masses_arr)),
+                    'charge_states': ion_charges,
+                    'num_charges': len(set(ion_charges)),
+                    'intensity': float(sum(i['intensity'] for i in ions)),
+                    'peaks_found': len(ions),
+                    'r2': r2,
+                    '_ion_indices': ion_indices_r,
+                    '_ions': ions,
+                    'second_pass': True,
+                })
+
+        # Select non-duplicate residual results
+        residual_candidates.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)
+        used_residual = set()
+        for rc in residual_candidates:
+            rc_indices = rc['_ion_indices']
+            overlap_count = len(rc_indices & used_residual)
+            if len(rc_indices) > 0 and overlap_count / len(rc_indices) > 0.50:
+                continue
+            mass_dup = False
+            for r in results:
+                if abs(r['mass'] - rc['mass']) / rc['mass'] < 0.001:  # 0.1% for residuals
+                    mass_dup = True
+                    break
+            if not mass_dup:
+                result = {k: v for k, v in rc.items() if not k.startswith('_')}
+                results.append(result)
+                used_residual.update(rc_indices)
+
     # Final sort by quality
     results.sort(key=lambda x: (x['num_charges'], x['intensity']), reverse=True)
     return results
