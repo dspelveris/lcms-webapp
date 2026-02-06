@@ -698,6 +698,36 @@ def _gaussian_fit_r2(charges: list[int], intensities: list[float]) -> float:
         return 0.0
 
 
+def _reject_mass_outliers(masses: np.ndarray, intensities: np.ndarray,
+                          max_mad_factor: float = 3.0) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Remove ions whose per-ion mass deviates too far from the median.
+
+    At high charge states, small m/z errors get amplified (0.1 Da at z=38 = 3.8 Da).
+    This filters outlier ions that matched to wrong peaks.
+
+    Returns filtered (masses, intensities) arrays.
+    """
+    if len(masses) < 4:
+        return masses, intensities
+
+    median_mass = np.median(masses)
+    abs_devs = np.abs(masses - median_mass)
+    mad = np.median(abs_devs)
+
+    if mad < 0.1:
+        # Very tight cluster — use fixed threshold of 5 Da
+        keep = abs_devs < 5.0
+    else:
+        keep = abs_devs < max_mad_factor * mad
+
+    # Always keep at least 3 ions
+    if np.sum(keep) < 3:
+        return masses, intensities
+
+    return masses[keep], intensities[keep]
+
+
 def deconvolute_protein_agilent_like(
     mz: np.ndarray,
     intensity: np.ndarray,
@@ -854,17 +884,16 @@ def deconvolute_protein_agilent_like(
                 strong = ions
 
             # Calculate mass using FIXED proton mass and intensity-weighted average
-            # This approach works better than regression for unit-mass or low-resolution data
-            # because regression can't accurately fit both M and H with limited m/z precision
-            #
-            # For each ion: M = z * (mz - H)
-            # Then take intensity-weighted average of all mass estimates
+            # with outlier rejection to remove ions that matched wrong peaks.
             intensities_arr = np.array([i['intensity'] for i in ions])
-            masses_arr = np.array([i['mass'] for i in ions])  # Already calculated as z*(mz-H)
+            masses_arr = np.array([i['mass'] for i in ions])
 
-            # Intensity-weighted average (like Agilent's approach)
-            weights = intensities_arr / intensities_arr.sum()
-            M_fit = float(np.sum(masses_arr * weights))
+            # Reject outlier ions (wrong peak matches amplified by high z)
+            masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
+
+            # Intensity-weighted average
+            weights = intensities_clean / intensities_clean.sum()
+            M_fit = float(np.sum(masses_clean * weights))
 
             # Alternative: also try regression and compare
             # If regression gives a proton mass close to expected, use its result
@@ -953,14 +982,15 @@ def deconvolute_protein_agilent_like(
                         break
 
             if not mass_duplicate:
-                # Use ALL ions in the candidate set for mass calculation.
-                # Ion sharing between species is expected and does not hurt accuracy.
+                # Use ALL ions in the candidate set for mass calculation
+                # with outlier rejection.
                 ions = candidate.get('_ions', [])
                 if len(ions) >= min_peaks:
                     intensities_arr = np.array([i['intensity'] for i in ions])
                     masses_arr = np.array([i['mass'] for i in ions])
-                    weights = intensities_arr / intensities_arr.sum()
-                    calc_mass = float(np.sum(masses_arr * weights))
+                    masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
+                    weights = intensities_clean / intensities_clean.sum()
+                    calc_mass = float(np.sum(masses_clean * weights))
 
                     result = {
                         'mass': calc_mass,
@@ -1045,8 +1075,9 @@ def deconvolute_protein_agilent_like(
 
                 intensities_arr = np.array([i['intensity'] for i in ions])
                 masses_arr = np.array([i['mass'] for i in ions])
-                weights = intensities_arr / intensities_arr.sum()
-                M_fit = float(np.sum(masses_arr * weights))
+                masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
+                weights = intensities_clean / intensities_clean.sum()
+                M_fit = float(np.sum(masses_clean * weights))
                 r2 = _gaussian_fit_r2(ion_charges, [i['intensity'] for i in ions])
 
                 residual_candidates.append({
