@@ -993,7 +993,7 @@ def single_sample_analysis(sample, settings):
                 else:
                     ax_uv.text(0.5, 0.5, f"No UV data at {wl:.0f} nm", ha='center', va='center', transform=ax_uv.transAxes)
                 fig_uv.tight_layout()
-                st.pyplot(fig_uv, width='stretch')
+                st.pyplot(fig_uv, use_container_width=True)
                 plt.close(fig_uv)
 
         # TIC
@@ -1005,7 +1005,7 @@ def single_sample_analysis(sample, settings):
             ax_tic.set_title("Total Ion Chromatogram (TIC)", fontsize=9)
             ax_tic.tick_params(labelsize=7)
             fig_tic.tight_layout()
-            st.pyplot(fig_tic, width='stretch')
+            st.pyplot(fig_tic, use_container_width=True)
             plt.close(fig_tic)
 
     with right_col:
@@ -1025,7 +1025,7 @@ def single_sample_analysis(sample, settings):
                 else:
                     ax_eic.text(0.5, 0.5, f"No data for m/z {mz}", ha='center', va='center', transform=ax_eic.transAxes)
                 fig_eic.tight_layout()
-                st.pyplot(fig_eic, width='stretch')
+                st.pyplot(fig_eic, use_container_width=True)
                 plt.close(fig_eic)
 
     # Combined figure for export
@@ -1155,7 +1155,7 @@ def time_progression_analysis(samples: list, settings):
     )
 
     # Display
-    st.pyplot(fig, width='stretch')
+    st.pyplot(fig, use_container_width=True)
 
     # Export buttons
     col1, col2, col3 = st.columns(3)
@@ -1216,7 +1216,7 @@ def eic_batch_analysis(sample, settings):
         overlay=overlay
     )
 
-    st.pyplot(fig, width='stretch')
+    st.pyplot(fig, use_container_width=True)
 
     # Peak areas table
     st.subheader("Peak Areas")
@@ -1420,7 +1420,7 @@ def deconvolution_analysis(sample, settings):
         ax.ticklabel_format(axis='y', style='scientific', scilimits=(0, 0))
         ax.legend()
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig_tic, width='stretch')
+        st.pyplot(fig_tic, use_container_width=True)
         plt.close(fig_tic)
 
     # Spectrum extraction mode
@@ -1498,7 +1498,7 @@ def deconvolution_analysis(sample, settings):
         y_max = intensity_display.max() if len(intensity_display) > 0 else 1
         ax.set_ylim(0, y_max * 1.2)
         plt.tight_layout()
-        st.pyplot(fig_ms, width='stretch')
+        st.pyplot(fig_ms, use_container_width=True)
 
         # Export buttons for summed mass spectrum
         col1, col2, col3 = st.columns(3)
@@ -1756,7 +1756,7 @@ def deconvolution_analysis(sample, settings):
         }
 
         fig = create_deconvolution_figure(sample, time_range[0], time_range[1], display_results, style)
-        st.pyplot(fig, width='stretch')
+        st.pyplot(fig, use_container_width=True)
 
         # Show theoretical m/z for selected mass
         st.subheader("Theoretical m/z Values")
