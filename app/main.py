@@ -1423,28 +1423,9 @@ def deconvolution_analysis(sample, settings):
         st.pyplot(fig_tic, use_container_width=True)
         plt.close(fig_tic)
 
-    # Spectrum extraction mode
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        extraction_mode = st.selectbox(
-            "Spectrum extraction",
-            ["Average (sum)", "Peak apex"],
-            index=0,
-            key="deconv_spectrum_mode"
-        )
-    with col2:
-        # Apex window size (only shown for Peak apex mode)
-        if extraction_mode == "Peak apex":
-            apex_n_scans = st.selectbox(
-                "Apex window",
-                [1, 3, 5, 7],
-                index=1,  # Default to 3 scans
-                format_func=lambda x: f"{x} scan{'s' if x > 1 else ''}",
-                key="apex_n_scans",
-                help="Number of scans to average around the TIC apex. 3-5 recommended."
-            )
-        else:
-            apex_n_scans = 1
+    # Spectrum extraction — default to Average (sum) for best Agilent agreement
+    extraction_mode = "Average (sum)"
+    apex_n_scans = 1
 
     # Always show mass spectrum for selected region
     st.subheader(f"Mass Spectrum ({format_time(start_time)} - {format_time(end_time)} min)")
@@ -1544,12 +1525,8 @@ def deconvolution_analysis(sample, settings):
     # Deconvolution parameters
     st.subheader("Deconvolution")
 
-    method = st.selectbox(
-        "Deconvolution method",
-        ["Agilent-like", "Simple"],
-        index=0,
-        key="deconv_method"
-    )
+    # Deconvolution method — default to Agilent-like for best accuracy
+    method = "Agilent-like"
 
     # Defaults for Agilent-like parameters - matched to Agilent's actual defaults
     # From PDF: MW Agreement 0.05%, Noise 1000, Abundance 10%, MW Assign 40%, Envelope 50%
@@ -1562,6 +1539,13 @@ def deconvolution_analysis(sample, settings):
     contig_min = 3
     use_mz_agreement = False
     use_monoisotopic = False
+    min_peaks = 3
+    max_peaks = 50
+    mass_tolerance = 1.0
+    low_mw = 500
+    high_mw = 50000
+    min_charge = 5
+    max_charge = 50
 
     # Display settings (outside expander for easy access)
     top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=5, key="top_n_masses")
@@ -1573,46 +1557,78 @@ def deconvolution_analysis(sample, settings):
         with col2:
             high_mw = st.number_input("High MW (Da)", min_value=100, max_value=500000, value=50000, step=1000)
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3 = st.columns(3)
         with col1:
             min_charge = st.number_input("Min charge", min_value=1, max_value=100, value=5)
         with col2:
             max_charge = st.number_input("Max charge", min_value=1, max_value=100, value=50)
         with col3:
-            min_peaks = st.number_input("Min peaks in set", min_value=2, max_value=50, value=3)
-        with col4:
-            max_peaks = st.number_input("Max peaks in set", min_value=2, max_value=100, value=50)
-        with col5:
-            mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=1.0, step=0.1)
+            noise_cutoff = st.number_input("Noise cutoff (counts)", min_value=0.0, max_value=1e9, value=1000.0, step=100.0,
+                                           help="Agilent default: 1000")
 
-        if method == "Agilent-like":
+        # Expert mode — hidden by default
+        expert_mode = st.checkbox("Expert mode", value=False, key="deconv_expert_mode")
+
+        if expert_mode:
+            st.caption("Method & extraction")
             col1, col2, col3 = st.columns(3)
             with col1:
+                method = st.selectbox(
+                    "Deconvolution method",
+                    ["Agilent-like", "Simple"],
+                    index=0,
+                    key="deconv_method"
+                )
+            with col2:
+                extraction_mode = st.selectbox(
+                    "Spectrum extraction",
+                    ["Average (sum)", "Peak apex"],
+                    index=0,
+                    key="deconv_spectrum_mode"
+                )
+            with col3:
+                if extraction_mode == "Peak apex":
+                    apex_n_scans = st.selectbox(
+                        "Apex window",
+                        [1, 3, 5, 7],
+                        index=1,
+                        format_func=lambda x: f"{x} scan{'s' if x > 1 else ''}",
+                        key="apex_n_scans",
+                        help="Number of scans to average around the TIC apex."
+                    )
+
+            st.caption("Advanced parameters")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                min_peaks = st.number_input("Min peaks in set", min_value=2, max_value=50, value=3)
+            with col2:
+                max_peaks = st.number_input("Max peaks in set", min_value=2, max_value=100, value=50)
+            with col3:
+                mass_tolerance = st.number_input("Mass tolerance (Da)", min_value=0.1, max_value=100.0, value=1.0, step=0.1)
+            with col4:
                 pwhh = st.number_input("Ion PWHH (Da)", min_value=0.05, max_value=5.0, value=0.6, step=0.05)
-            with col2:
-                mw_agreement_pct = st.number_input("MW agreement (%)", min_value=0.001, max_value=5.0, value=0.05, step=0.01,
-                                                   help="Agilent default: 0.05%")
-            with col3:
-                noise_cutoff = st.number_input("Noise cutoff (counts)", min_value=0.0, max_value=1e9, value=1000.0, step=100.0,
-                                               help="Agilent default: 1000")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                abundance_cutoff_pct = st.number_input("Abundance cutoff (%)", min_value=0.0, max_value=100.0, value=10.0, step=1.0,
-                                                       help="Agilent default: 10%")
-            with col2:
-                mw_assign_cutoff_pct = st.number_input("MW assign cutoff (%)", min_value=0.0, max_value=100.0, value=40.0, step=1.0,
-                                                       help="Agilent default: 40%")
-            with col3:
-                envelope_cutoff_pct = st.number_input("Envelope cutoff (%)", min_value=0.0, max_value=100.0, value=50.0, step=1.0,
-                                                      help="Agilent default: 50%")
+            if method == "Agilent-like":
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    mw_agreement_pct = st.number_input("MW agreement (%)", min_value=0.001, max_value=5.0, value=0.05, step=0.01,
+                                                       help="Agilent default: 0.05%")
+                with col2:
+                    abundance_cutoff_pct = st.number_input("Abundance cutoff (%)", min_value=0.0, max_value=100.0, value=10.0, step=1.0,
+                                                           help="Agilent default: 10%")
+                with col3:
+                    mw_assign_cutoff_pct = st.number_input("MW assign cutoff (%)", min_value=0.0, max_value=100.0, value=40.0, step=1.0,
+                                                           help="Agilent default: 40%")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                contig_min = st.number_input("Min contiguous charges", min_value=1, max_value=50, value=3, step=1)
-            with col2:
-                use_mz_agreement = st.checkbox("Use m/z agreement", value=False)
-            with col3:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    envelope_cutoff_pct = st.number_input("Envelope cutoff (%)", min_value=0.0, max_value=100.0, value=50.0, step=1.0,
+                                                          help="Agilent default: 50%")
+                with col2:
+                    contig_min = st.number_input("Min contiguous charges", min_value=1, max_value=50, value=3, step=1)
+                with col3:
+                    use_mz_agreement = st.checkbox("Use m/z agreement", value=False)
+
                 use_monoisotopic = st.checkbox(
                     "Monoisotopic H+",
                     value=False,
@@ -1715,13 +1731,15 @@ def deconvolution_analysis(sample, settings):
         time_range = st.session_state.deconv_time_range
 
         # Build info caption
-        proton_info = ""
-        if method == "Agilent-like" and st.session_state.get('deconv_use_monoisotopic'):
-            proton_info = " | H+=1.007276 (mono)"
-        apex_info = ""
-        if extraction_mode == "Peak apex":
-            apex_info = f" ({apex_n_scans} scans)"
-        st.caption(f"Method: {method} | Spectrum: {extraction_mode}{apex_info}{proton_info}")
+        caption_parts = []
+        if expert_mode:
+            caption_parts.append(f"Method: {method}")
+            apex_info = f" ({apex_n_scans} scans)" if extraction_mode == "Peak apex" else ""
+            caption_parts.append(f"Spectrum: {extraction_mode}{apex_info}")
+            if method == "Agilent-like" and use_monoisotopic:
+                caption_parts.append("H+=1.007276 (mono)")
+        if caption_parts:
+            st.caption(" | ".join(caption_parts))
 
         show_full_precision = st.checkbox("Show full precision masses", value=False, key="deconv_full_precision")
 
