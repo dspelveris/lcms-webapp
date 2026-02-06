@@ -1303,6 +1303,13 @@ def deconvolution_analysis(sample, settings):
             del st.session_state.deconv_start_val
         if 'deconv_end_val' in st.session_state:
             del st.session_state.deconv_end_val
+        # Clear previous deconvolution output for the old sample
+        if 'deconv_results' in st.session_state:
+            del st.session_state.deconv_results
+        if 'deconv_auto_profile_note' in st.session_state:
+            del st.session_state.deconv_auto_profile_note
+        if 'deconv_last_run_sig' in st.session_state:
+            del st.session_state.deconv_last_run_sig
 
     # Auto-detect main peak
     if 'deconv_auto_start' not in st.session_state or sample_changed:
@@ -1765,6 +1772,8 @@ def deconvolution_analysis(sample, settings):
             st.session_state.deconv_mw_range = (low_mw, high_mw)
             st.session_state.deconv_use_monoisotopic = use_monoisotopic
             st.session_state.deconv_auto_profile_note = auto_profile_note
+            # Mark results as fresh for current time range/parameters.
+            st.session_state.deconv_last_run_sig = autorun_sig
 
     autorun_sig = (
         sample.name,
@@ -1800,8 +1809,12 @@ def deconvolution_analysis(sample, settings):
     if st.button("Run Deconvolution", type="primary"):
         run_deconvolution()
 
+    results_are_current = st.session_state.get('deconv_last_run_sig') == autorun_sig
+    if hasattr(st.session_state, 'deconv_results') and st.session_state.deconv_results and not results_are_current:
+        st.info("Time range or parameters changed. Click Run Deconvolution to refresh results.")
+
     # Display results if available
-    if hasattr(st.session_state, 'deconv_results') and st.session_state.deconv_results:
+    if hasattr(st.session_state, 'deconv_results') and st.session_state.deconv_results and results_are_current:
         results = st.session_state.deconv_results
         mz = st.session_state.deconv_mz
         intensity = st.session_state.deconv_intensity
@@ -1909,7 +1922,7 @@ def deconvolution_analysis(sample, settings):
                 mime="application/pdf"
             )
 
-    elif hasattr(st.session_state, 'deconv_results'):
+    elif hasattr(st.session_state, 'deconv_results') and results_are_current:
         st.info("No protein masses detected. Try adjusting the parameters or selecting a different time region.")
 
 
