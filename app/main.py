@@ -1904,6 +1904,14 @@ def main():
     if 'active_tab' not in st.session_state:
         st.session_state.active_tab = "Single Sample"
 
+    # Auto-switch to Deconvolution tab for C4 method samples
+    if len(sample_list) == 1 and sample_list[0].is_c4_method:
+        # Only auto-switch once per sample (not on every rerun)
+        current_sample_name = sample_list[0].name
+        if st.session_state.get('_c4_auto_switched') != current_sample_name:
+            st.session_state.active_tab = "Deconvolution"
+            st.session_state._c4_auto_switched = current_sample_name
+
     # Tab selector using radio buttons (preserves state across reruns)
     tab_options = ["Single Sample", "EIC Batch", "Deconvolution", "Time Progression"]
     active_tab = st.radio(

@@ -100,6 +100,7 @@ class SampleData:
         self.ms_scans: Optional[list] = None
         self.ms_mz_axis: Optional[np.ndarray] = None  # m/z values for scans
         self.tic: Optional[np.ndarray] = None
+        self.acq_method: Optional[str] = None
         self._loaded = False
         self._error: Optional[str] = None
         self._debug_info: dict = {}
@@ -111,6 +112,29 @@ class SampleData:
     @property
     def error(self) -> Optional[str]:
         return self._error
+
+    @property
+    def is_c4_method(self) -> bool:
+        """True if acquisition method starts with C4 (intact protein analysis)."""
+        return self.acq_method is not None and self.acq_method.upper().startswith("C4")
+
+    def _parse_acq_method(self):
+        """Parse acquisition method name from acq.txt (UTF-16 encoded)."""
+        acq_path = Path(self.folder_path) / "acq.txt"
+        if not acq_path.exists():
+            return
+        try:
+            text = acq_path.read_text(encoding="utf-16")
+            for line in text.splitlines():
+                line = line.strip()
+                if line.lower().startswith("acq. method"):
+                    # Format: "Acq. Method: C4-Jup-standard.M"
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        self.acq_method = parts[1].strip()
+                    break
+        except Exception:
+            pass
 
     def _extract_detector_data(self, detector_data):
         """Extract times, data, and labels from a detector data object."""
@@ -213,6 +237,8 @@ class SampleData:
 
     def load(self) -> bool:
         """Load data from .D folder using rainbow-api."""
+        self._parse_acq_method()
+
         if not check_rainbow_available():
             self._error = "rainbow-api not installed"
             return False
