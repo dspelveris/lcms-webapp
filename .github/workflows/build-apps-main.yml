@@ -13,11 +13,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact_name: LCMS-Analysis-macOS
-            zip_name: LCMS-Analysis-macOS.zip
+            platform: macOS
           - os: windows-latest
-            artifact_name: LCMS-Analysis-Windows
-            zip_name: LCMS-Analysis-Windows.zip
+            platform: Windows
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -27,6 +25,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Read app version
+        id: app_version
+        shell: bash
+        run: |
+          VERSION=$(python -c 'import pathlib,re; text = pathlib.Path("app/config.py").read_text(); m = re.search(r"APP_VERSION\\s*=\\s*\"([^\"]+)\"", text); print(m.group(1) if m else "0.0.0")')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building app version: $VERSION"
 
       - name: Install dependencies
         run: |
@@ -109,15 +115,15 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cd dist
-          zip -r ${{ matrix.zip_name }} LCMS-Analysis
+          zip -r LCMS-Analysis-v${{ steps.app_version.outputs.version }}-macOS.zip LCMS-Analysis
 
       - name: Create ZIP (Windows)
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path dist\LCMS-Analysis -DestinationPath dist\${{ matrix.zip_name }}
+          Compress-Archive -Path dist\LCMS-Analysis -DestinationPath dist\LCMS-Analysis-v${{ steps.app_version.outputs.version }}-Windows.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.zip_name }}
+          name: LCMS-Analysis-v${{ steps.app_version.outputs.version }}-${{ matrix.platform }}
+          path: dist/LCMS-Analysis-v${{ steps.app_version.outputs.version }}-${{ matrix.platform }}.zip
