@@ -9,13 +9,20 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 # Set smaller default font sizes
 plt.rcParams.update({
+    # Prefer Arial so exported PDFs open in Affinity with matching text style.
+    # If Arial is unavailable, fall back to common sans-serif fonts.
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial', 'Liberation Sans', 'DejaVu Sans'],
     'font.size': 8,
     'axes.titlesize': 9,
     'axes.labelsize': 8,
     'xtick.labelsize': 7,
     'ytick.labelsize': 7,
     'legend.fontsize': 7,
-    'figure.titlesize': 10
+    'figure.titlesize': 10,
+    # Embed TrueType fonts in PDF for better editability in vector editors.
+    'pdf.fonttype': 42,
+    'ps.fonttype': 42
 })
 
 import config
@@ -618,35 +625,150 @@ def _plot_deconvoluted_masses_panel(ax_deconv, deconv_results: list, show_grid: 
         ax_deconv.set_xlim(min_mass - x_margin, max_mass + x_margin)
         ax_deconv.set_ylim(0, 120)  # Extra headroom for labels
 
-        # Add mass labels with overlap avoidance
+        # Add mass labels with side offsets and collision avoidance so labels
+        # don't sit directly on top of bars.
         labeled_peaks = sorted(enumerate(zip(masses_kda, norm_intensities, masses)), key=lambda x: x[1][0])
-        label_positions = []  # Track (x, y) of placed labels
+        label_positions = []  # Track placed label anchors in data coordinates
+        x_min, x_max = ax_deconv.get_xlim()
+        y_top = ax_deconv.get_ylim()[1]
 
-        for orig_idx, (m_kda, intensity, mass_da) in labeled_peaks:
-            label_y = intensity + 3
-            label_x = m_kda
+        # Keep labels close to bars; resolve most conflicts by moving upward.
+        base_x_offset = max(mass_range * 0.008, 0.022)
+        max_x_offset = max(mass_range * 0.024, 0.070)
+        # Collision window includes approximate text width so labels do not
+        # visually overlap even when anchor points are somewhat separated.
+        x_collision = max(mass_range * 0.12, 0.30)
+        y_collision = 8.0
+        y_step = 7.0
+        # Do not place label anchors on top of other bars.
+        bar_avoid = max(mass_range * 0.006, 0.10)
 
-            # Stagger labels when too close in x/y
-            for prev_x, prev_y in label_positions:
-                x_dist = abs(m_kda - prev_x) / (mass_range + 0.001) * 100
-                y_dist = abs(label_y - prev_y)
-                if x_dist < 15 and y_dist < 10:
-                    label_y = prev_y + 12
-
-            label_positions.append((label_x, label_y))
-
+        for sorted_idx, (orig_idx, (m_kda, intensity, mass_da)) in enumerate(labeled_peaks):
             if mass_da >= 10000:
                 label_text = f"{mass_da:.1f}"
             else:
                 label_text = f"{mass_da:.2f}"
 
             label_color = label_colors[orig_idx % len(label_colors)]
+
+            # Prefer inward placement near edges; otherwise place toward
+            # whichever side has more free horizontal space.
+            edge_zone = 0.08 * (x_max - x_min)
+            hard_edge = 1.15 * max_x_offset
+            near_left_edge = m_kda <= x_min + max(edge_zone, hard_edge)
+            near_right_edge = m_kda >= x_max - max(edge_zone, hard_edge)
+
+            if near_left_edge:
+                preferred_side = 1
+            elif near_right_edge:
+                preferred_side = -1
+            else:
+                left_neighbors = [x for j, x in enumerate(masses_kda) if j != orig_idx and x < m_kda]
+                right_neighbors = [x for j, x in enumerate(masses_kda) if j != orig_idx and x > m_kda]
+                left_space = m_kda - (max(left_neighbors) if left_neighbors else x_min)
+                right_space = (min(right_neighbors) if right_neighbors else x_max) - m_kda
+                if left_space > right_space:
+                    preferred_side = -1
+                elif right_space > left_space:
+                    preferred_side = 1
+                else:
+                    preferred_side = -1 if (sorted_idx % 2 == 0) else 1
+            best_pos = None
+            for tier in range(6):
+                for side in (preferred_side, -preferred_side):
+                    # First attempt uses preferred side only.
+                    if tier == 0 and side != preferred_side:
+                        continue
+
+                    x_shift = min(base_x_offset * (1.0 + 0.12 * tier), max_x_offset)
+                    cand_x = m_kda + side * x_shift
+                    cand_y = intensity + 3.0 + y_step * tier
+
+                    # Keep labels inside plot bounds with a small horizontal margin.
+                    margin = max(base_x_offset * 0.35, 0.015)
+                    cand_x = min(max(cand_x, x_min + margin), x_max - margin)
+                    cand_y = min(cand_y, y_top - 2.0)
+
+                    collides = False
+                    for prev_x, prev_y in label_positions:
+                        if abs(cand_x - prev_x) < x_collision and abs(cand_y - prev_y) < y_collision:
+                            collides = True
+                            break
+                    if collides:
+                        continue
+
+                    # Keep label anchor away from other bar lines so text does
+                    # not visually overlap unrelated peaks.
+                    for j, other_x in enumerate(masses_kda):
+                        if j == orig_idx:
+                            continue
+                        if abs(cand_x - other_x) < bar_avoid:
+                            collides = True
+                            break
+                    if not collides:
+                        best_pos = (cand_x, cand_y)
+                        break
+                if best_pos is not None:
+                    break
+
+            if best_pos is None:
+                # Fallback: place near preferred side (not centered on bar).
+                fallback_x = m_kda + preferred_side * max_x_offset
+                fallback_x = min(max(fallback_x, x_min + base_x_offset), x_max - base_x_offset)
+                best_pos = (fallback_x, min(intensity + 8.0, y_top - 2.0))
+
+            label_x, label_y = best_pos
+
+            # Force edge labels inward to avoid touching axes.
+            near_left = m_kda <= x_min + hard_edge
+            near_right = m_kda >= x_max - hard_edge
+            if near_left:
+                label_x = max(label_x, m_kda + base_x_offset)
+            elif near_right:
+                label_x = min(label_x, m_kda - base_x_offset)
+
+            # If neighboring bars are very close, bias this label away from the
+            # nearest neighbor so text does not visually overlap that bar.
+            other_masses = [x for j, x in enumerate(masses_kda) if j != orig_idx]
+            nearest_other = min(other_masses, key=lambda x: abs(x - m_kda)) if other_masses else None
+            nearest_dist = abs(nearest_other - m_kda) if nearest_other is not None else float("inf")
+            tight_cluster_thresh = max(mass_range * 0.015, 0.22)
+            isolated_thresh = max(mass_range * 0.08, 0.80)
+            force_center = False
+
+            if nearest_dist > isolated_thresh:
+                # Isolated bars read best with centered labels.
+                label_x = m_kda
+                force_center = True
+            elif nearest_other is not None and nearest_dist < tight_cluster_thresh:
+                if nearest_other < m_kda:
+                    label_x = max(label_x, m_kda + 0.6 * base_x_offset)
+                else:
+                    label_x = min(label_x, m_kda - 0.6 * base_x_offset)
+
+            label_positions.append((label_x, label_y))
+
+            side = 0
+            if label_x > m_kda:
+                side = 1
+            elif label_x < m_kda:
+                side = -1
+
+            if force_center:
+                ha = 'center'
+            elif side > 0:
+                ha = 'left'
+            elif side < 0:
+                ha = 'right'
+            else:
+                ha = 'center'
+
             ax_deconv.annotate(
                 label_text,
                 (m_kda, intensity),
                 xytext=(label_x, label_y),
                 fontsize=6,
-                ha='center',
+                ha=ha,
                 va='bottom',
                 color=label_color,
                 fontweight='bold'
