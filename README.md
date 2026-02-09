@@ -4,14 +4,14 @@ Analyze LC-MS (Liquid Chromatography-Mass Spectrometry) data from Agilent .D fol
 
 ## Group
 
-This project is from the ETH Zurich group listed here:
-[https://lang.ethz.ch/people.html](https://lang.ethz.ch/people.html)
+This project is from the ETH Zürich group listed here:
+[https://lang.ethz.ch/](https://lang.ethz.ch/)
 
 ## Features
 
 - **UV-Vis Chromatograms**: Multi-wavelength detector (MWD) data at 194, 254, 280 nm
 - **Mass Spectrometry**: Total Ion Chromatogram (TIC) and Extracted Ion Chromatograms (EIC)
-- **Protein Deconvolution**: Calculate neutral mass from multiply-charged ion series
+- **Protein Deconvolution**: Agilent-like neutral-mass deconvolution from charge envelopes
 - **Time Progression**: Compare 2-3 samples with color-coded overlays
 - **Export**: Download plots as PNG (300 DPI), SVG, or PDF
 
@@ -53,12 +53,19 @@ streamlit run app/main.py
 
 ### Default Settings
 
-- UV Wavelength: 194 nm
+- UV Wavelengths: multi-select; 194 nm pre-selected when available
 - UV Smoothing: 36
 - EIC Smoothing: 5
 - m/z Window: ±0.5
-- Default m/z values: 680.1, 382.98, 243.99, 321.15
+- Default m/z values: none (users add targets in the sidebar)
 - Export DPI: 300
+- Deconvolution method: Agilent-like (default mode)
+- Spectrum extraction: Average (sum)
+- Show top N masses: 5
+- Deconvolution MW range: 500 to 50000 Da
+- Deconvolution charge range: 5 to 50
+- Deconvolution noise cutoff: 1000 counts
+- Include singly-charged ions (z=1): off by default
 
 ## Usage
 
@@ -70,6 +77,17 @@ streamlit run app/main.py
 3. **Adjust Settings**: Modify UV wavelength, smoothing, and m/z window in sidebar
 4. **Configure m/z Targets**: Add/remove target m/z values for EIC extraction
 5. **Export**: Download plots as PNG files
+
+## How Deconvolution Works
+
+1. The app sums all MS scans in the selected retention-time window to build one spectrum.
+2. The spectrum is smoothed, peaks are detected, and low-intensity peaks below the noise cutoff are ignored.
+3. For each anchor peak and charge state, candidate neutral masses are computed with `M = (m/z - H+) * z`.
+4. Peaks are grouped into ion sets using MW agreement, abundance cutoff, and charge-ladder contiguity checks.
+5. Mass is estimated robustly with ion-level outlier rejection; broad envelopes use per-charge representative ions.
+6. Candidate components are selected with overlap and duplicate controls so different species can share part of the same crowded region.
+7. A residual second pass runs on unclaimed peaks to recover weaker species.
+8. Optional singly charged (`z=1`) ions can be merged into results when enabled.
 
 ## Time Progression Colors
 
