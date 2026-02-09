@@ -132,6 +132,7 @@ from plotting import (
     create_time_progression_figure,
     create_eic_comparison_figure,
     create_deconvolution_figure,
+    create_deconvoluted_masses_figure,
     create_mass_spectrum_figure,
     export_figure,
     export_figure_svg,
@@ -1889,33 +1890,7 @@ def deconvolution_analysis(sample, settings):
         fig = create_deconvolution_figure(sample, time_range[0], time_range[1], display_results, style)
         st.pyplot(fig, use_container_width=True)
 
-        # Show theoretical m/z for selected mass
-        st.subheader("Theoretical m/z Values")
-        selected_mass_idx = st.selectbox(
-            "Select mass to view theoretical peaks",
-            range(len(results[:10])),
-            format_func=lambda i: f"{results[i]['mass']:.2f} Da",
-            key="theo_mz_mass_select"
-        )
-
-        if selected_mass_idx is not None:
-            selected_result = results[selected_mass_idx]
-            use_mono = st.session_state.get('deconv_use_monoisotopic', False)
-            theoretical = get_theoretical_mz(
-                selected_result['mass'],
-                selected_result['charge_states'],
-                use_monoisotopic_proton=use_mono
-            )
-
-            theo_data = []
-            for t in theoretical:
-                theo_data.append({
-                    'Charge': f"+{t['charge']}",
-                    'm/z': f"{t['mz']:.4f}"
-                })
-            render_text_table(theo_data, list(theo_data[0].keys()) if theo_data else [], max_lines=5)
-
-        # Export buttons
+        # Export buttons for 3-panel figure (placed directly under the graph)
         col1, col2, col3 = st.columns(3)
         with col1:
             png_data = export_figure(fig, dpi=settings['export_dpi'])
@@ -1941,6 +1916,67 @@ def deconvolution_analysis(sample, settings):
                 file_name=f"{sample.name}_deconvolution.pdf",
                 mime="application/pdf"
             )
+
+        # Standalone deconvoluted masses panel (same figure size as the 3-panel plot)
+        st.subheader("Deconvoluted Masses (Standalone)")
+        fig_deconv_only = create_deconvoluted_masses_figure(sample.name, display_results, style)
+        st.pyplot(fig_deconv_only, use_container_width=True)
+
+        export_key_base = sample.name.replace(" ", "_").replace(".", "_")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            png_data_only = export_figure(fig_deconv_only, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PNG (deconvoluted)",
+                data=png_data_only,
+                file_name=f"{sample.name}_deconvoluted_masses.png",
+                mime="image/png",
+                key=f"deconv_only_png_{export_key_base}"
+            )
+        with col2:
+            svg_data_only = export_figure_svg(fig_deconv_only)
+            st.download_button(
+                label="Download SVG (deconvoluted)",
+                data=svg_data_only,
+                file_name=f"{sample.name}_deconvoluted_masses.svg",
+                mime="image/svg+xml",
+                key=f"deconv_only_svg_{export_key_base}"
+            )
+        with col3:
+            pdf_data_only = export_figure_pdf(fig_deconv_only, dpi=settings['export_dpi'])
+            st.download_button(
+                label="Download PDF (deconvoluted)",
+                data=pdf_data_only,
+                file_name=f"{sample.name}_deconvoluted_masses.pdf",
+                mime="application/pdf",
+                key=f"deconv_only_pdf_{export_key_base}"
+            )
+
+        # Show theoretical m/z for selected mass
+        st.subheader("Theoretical m/z Values")
+        selected_mass_idx = st.selectbox(
+            "Select mass to view theoretical peaks",
+            range(len(results[:10])),
+            format_func=lambda i: f"{results[i]['mass']:.2f} Da",
+            key="theo_mz_mass_select"
+        )
+
+        if selected_mass_idx is not None:
+            selected_result = results[selected_mass_idx]
+            use_mono = st.session_state.get('deconv_use_monoisotopic', False)
+            theoretical = get_theoretical_mz(
+                selected_result['mass'],
+                selected_result['charge_states'],
+                use_monoisotopic_proton=use_mono
+            )
+
+            theo_data = []
+            for t in theoretical:
+                theo_data.append({
+                    'Charge': f"+{t['charge']}",
+                    'm/z': f"{t['mz']:.4f}"
+                })
+            render_text_table(theo_data, list(theo_data[0].keys()) if theo_data else [], max_lines=5)
 
     elif hasattr(st.session_state, 'deconv_results') and results_are_current:
         st.info("No protein masses detected. Try adjusting the parameters or selecting a different time region.")

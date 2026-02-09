@@ -587,6 +587,82 @@ def create_mass_spectrum_figure(mz: np.ndarray, intensity: np.ndarray,
     return fig
 
 
+def _plot_deconvoluted_masses_panel(ax_deconv, deconv_results: list, show_grid: bool = True) -> None:
+    """Render deconvoluted masses as a vertical-line spectrum on the given axis."""
+    # Color palette for bars and labels
+    bar_colors = ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    label_colors = ['#1a6b1a', '#0d4f8a', '#cc6600', '#a31d1d', '#6b4a91',
+                    '#5c3a32', '#b8518f', '#4d4d4d', '#8a8b19', '#0f8a94']
+
+    if deconv_results and len(deconv_results) > 0:
+        masses = [r['mass'] for r in deconv_results]
+        intensities = [r['intensity'] for r in deconv_results]
+
+        max_int = max(intensities) if intensities else 1
+        norm_intensities = [i / max_int * 100 for i in intensities]
+
+        # Convert to kDa for x-axis
+        masses_kda = [m / 1000 for m in masses]
+
+        # Draw vertical lines (stem plot style) with different colors
+        for i, (m_kda, intensity) in enumerate(zip(masses_kda, norm_intensities)):
+            bar_color = bar_colors[i % len(bar_colors)]
+            ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color=bar_color, linewidth=2)
+
+        # Set x-axis range: min-20% to max+20%
+        min_mass = min(masses_kda)
+        max_mass = max(masses_kda)
+        mass_range = max_mass - min_mass if max_mass > min_mass else max_mass * 0.1
+        x_margin = mass_range * 0.2 if mass_range > 0 else max_mass * 0.2
+        ax_deconv.set_xlim(min_mass - x_margin, max_mass + x_margin)
+        ax_deconv.set_ylim(0, 120)  # Extra headroom for labels
+
+        # Add mass labels with overlap avoidance
+        labeled_peaks = sorted(enumerate(zip(masses_kda, norm_intensities, masses)), key=lambda x: x[1][0])
+        label_positions = []  # Track (x, y) of placed labels
+
+        for orig_idx, (m_kda, intensity, mass_da) in labeled_peaks:
+            label_y = intensity + 3
+            label_x = m_kda
+
+            # Stagger labels when too close in x/y
+            for prev_x, prev_y in label_positions:
+                x_dist = abs(m_kda - prev_x) / (mass_range + 0.001) * 100
+                y_dist = abs(label_y - prev_y)
+                if x_dist < 15 and y_dist < 10:
+                    label_y = prev_y + 12
+
+            label_positions.append((label_x, label_y))
+
+            if mass_da >= 10000:
+                label_text = f"{mass_da:.1f}"
+            else:
+                label_text = f"{mass_da:.2f}"
+
+            label_color = label_colors[orig_idx % len(label_colors)]
+            ax_deconv.annotate(
+                label_text,
+                (m_kda, intensity),
+                xytext=(label_x, label_y),
+                fontsize=6,
+                ha='center',
+                va='bottom',
+                color=label_color,
+                fontweight='bold'
+            )
+
+        ax_deconv.set_xlabel("Mass (kDa)")
+        ax_deconv.set_ylabel("Relative Intensity (%)")
+        ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
+
+        if show_grid:
+            ax_deconv.grid(True, alpha=0.3)
+    else:
+        ax_deconv.text(0.5, 0.5, "No masses detected", ha='center', va='center', transform=ax_deconv.transAxes)
+        ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
+
+
 def create_deconvolution_figure(sample, start_time: float, end_time: float,
                                  deconv_results: list,
                                  style: dict = None) -> matplotlib.figure.Figure:
@@ -669,82 +745,52 @@ def create_deconvolution_figure(sample, start_time: float, end_time: float,
 
     # Bottom right: Deconvoluted masses (linear kDa scale with vertical lines)
     ax_deconv = fig.add_subplot(gs[1, 1])
-
-    # Color palette for bars and labels
-    bar_colors = ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728', '#9467bd',
-                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-    label_colors = ['#1a6b1a', '#0d4f8a', '#cc6600', '#a31d1d', '#6b4a91',
-                    '#5c3a32', '#b8518f', '#4d4d4d', '#8a8b19', '#0f8a94']
-
-    if deconv_results and len(deconv_results) > 0:
-        # Use all results passed (already limited by caller)
-        masses = [r['mass'] for r in deconv_results]
-        intensities = [r['intensity'] for r in deconv_results]
-
-        max_int = max(intensities) if intensities else 1
-        norm_intensities = [i / max_int * 100 for i in intensities]
-
-        # Convert to kDa for x-axis
-        masses_kda = [m / 1000 for m in masses]
-
-        # Draw vertical lines (stem plot style) with different colors
-        for i, (m_kda, intensity) in enumerate(zip(masses_kda, norm_intensities)):
-            bar_color = bar_colors[i % len(bar_colors)]
-            ax_deconv.vlines(x=m_kda, ymin=0, ymax=intensity, color=bar_color, linewidth=2)
-
-        # Set x-axis range: min-20% to max+20%
-        min_mass = min(masses_kda)
-        max_mass = max(masses_kda)
-        mass_range = max_mass - min_mass if max_mass > min_mass else max_mass * 0.1
-        x_margin = mass_range * 0.2 if mass_range > 0 else max_mass * 0.2
-        ax_deconv.set_xlim(min_mass - x_margin, max_mass + x_margin)
-        ax_deconv.set_ylim(0, 120)  # Extra headroom for labels
-
-        # Add mass labels with overlap avoidance
-        # Sort by x position for overlap detection
-        labeled_peaks = sorted(enumerate(zip(masses_kda, norm_intensities, masses)), key=lambda x: x[1][0])
-        label_positions = []  # Track (x, y) of placed labels
-
-        for orig_idx, (m_kda, intensity, mass_da) in labeled_peaks:
-            # Default label position
-            label_y = intensity + 3
-            label_x = m_kda
-
-            # Check for overlap with existing labels
-            for prev_x, prev_y in label_positions:
-                x_dist = abs(m_kda - prev_x) / (mass_range + 0.001) * 100  # As % of range
-                y_dist = abs(label_y - prev_y)
-                if x_dist < 15 and y_dist < 10:  # Too close
-                    label_y = prev_y + 12  # Stagger vertically
-
-            label_positions.append((label_x, label_y))
-
-            # Format label: show Da value with appropriate precision
-            if mass_da >= 10000:
-                label_text = f"{mass_da:.1f}"  # 15679.3
-            elif mass_da >= 1000:
-                label_text = f"{mass_da:.2f}"  # 1568.89
-            else:
-                label_text = f"{mass_da:.2f}"  # 500.50
-
-            # Use matching label color for each bar
-            label_color = label_colors[orig_idx % len(label_colors)]
-            ax_deconv.annotate(label_text, (m_kda, intensity),
-                             xytext=(label_x, label_y),
-                             fontsize=6, ha='center', va='bottom',
-                             color=label_color, fontweight='bold')
-
-        ax_deconv.set_xlabel("Mass (kDa)")
-        ax_deconv.set_ylabel("Relative Intensity (%)")
-        ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
-
-        if show_grid:
-            ax_deconv.grid(True, alpha=0.3)
-    else:
-        ax_deconv.text(0.5, 0.5, "No masses detected",
-                      ha='center', va='center', transform=ax_deconv.transAxes)
-        ax_deconv.set_title("Deconvoluted Masses", fontweight='bold')
+    _plot_deconvoluted_masses_panel(ax_deconv, deconv_results, show_grid=show_grid)
 
     plt.suptitle(f"Protein Deconvolution: {sample.name}", fontsize=10, fontweight='bold', y=1.02)
 
+    return fig
+
+
+def create_deconvoluted_masses_figure(
+    sample_name: str,
+    deconv_results: list,
+    style: dict = None
+) -> matplotlib.figure.Figure:
+    """
+    Create a standalone deconvoluted masses figure (single panel).
+
+    Args:
+        sample_name: Name of sample for title
+        deconv_results: Deconvolution results (typically top-N already filtered)
+        style: Style settings dict
+
+    Returns:
+        Matplotlib Figure
+    """
+    style = style or {}
+    base_fig_width = style.get('fig_width', 8)
+    show_grid = style.get('show_grid', True)
+
+    # Match the physical panel size used by create_deconvolution_figure()
+    # for the bottom-right deconvoluted-masses subplot.
+    base_fig_height = 5.5
+    left, right = 0.125, 0.9
+    bottom, top = 0.11, 0.88
+    wspace = 0.3
+    hspace = 0.45
+    total_width_frac = right - left
+    total_height_frac = top - bottom
+
+    # GridSpec width/height allocation mirrors create_deconvolution_figure():
+    # 2 columns with wspace=0.3, and row height ratios [1, 2] with hspace=0.45.
+    panel_width_frac = total_width_frac / (2 + wspace)
+    panel_height_frac = (2 * total_height_frac) / (1 + 2 + hspace)
+
+    panel_width_in = base_fig_width * panel_width_frac
+    panel_height_in = base_fig_height * panel_height_frac
+
+    fig, ax = plt.subplots(1, 1, figsize=(panel_width_in, panel_height_in))
+    _plot_deconvoluted_masses_panel(ax, deconv_results, show_grid=show_grid)
+    plt.tight_layout(pad=0.8)
     return fig
