@@ -2,6 +2,11 @@
 
 Analyze LC-MS (Liquid Chromatography-Mass Spectrometry) data from Agilent .D folders.
 
+## Group
+
+This project is from the ETH Zurich group listed here:
+[https://lang.ethz.ch/people.html](https://lang.ethz.ch/people.html)
+
 ## Features
 
 - **UV-Vis Chromatograms**: Multi-wavelength detector (MWD) data at 194, 254, 280 nm
