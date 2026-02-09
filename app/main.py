@@ -1568,7 +1568,7 @@ def deconvolution_analysis(sample, settings):
     max_charge = 50
 
     # Display settings (outside expander for easy access)
-    top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=10, key="top_n_masses")
+    top_n_masses = st.slider("Show top N masses", min_value=1, max_value=20, value=5, key="top_n_masses")
 
     with st.expander("Deconvolution Parameters", expanded=False):
         col1, col2 = st.columns(2)
