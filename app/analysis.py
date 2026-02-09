@@ -891,9 +891,9 @@ def deconvolute_protein_agilent_like(
             # Reject outlier ions (wrong peak matches amplified by high z)
             masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
 
-            # Intensity-weighted average
-            weights = intensities_clean / intensities_clean.sum()
-            M_fit = float(np.sum(masses_clean * weights))
+            # Median mass — more robust than weighted average when neighbouring
+            # species contaminate individual ions (see test_mass_methods.py).
+            M_fit = float(np.median(masses_clean))
 
             # Alternative: also try regression and compare
             # If regression gives a proton mass close to expected, use its result
@@ -989,8 +989,7 @@ def deconvolute_protein_agilent_like(
                     intensities_arr = np.array([i['intensity'] for i in ions])
                     masses_arr = np.array([i['mass'] for i in ions])
                     masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
-                    weights = intensities_clean / intensities_clean.sum()
-                    calc_mass = float(np.sum(masses_clean * weights))
+                    calc_mass = float(np.median(masses_clean))
 
                     result = {
                         'mass': calc_mass,
@@ -1076,8 +1075,7 @@ def deconvolute_protein_agilent_like(
                 intensities_arr = np.array([i['intensity'] for i in ions])
                 masses_arr = np.array([i['mass'] for i in ions])
                 masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
-                weights = intensities_clean / intensities_clean.sum()
-                M_fit = float(np.sum(masses_clean * weights))
+                M_fit = float(np.median(masses_clean))
                 r2 = _gaussian_fit_r2(ion_charges, [i['intensity'] for i in ions])
 
                 residual_candidates.append({

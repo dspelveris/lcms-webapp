@@ -1325,23 +1325,27 @@ def deconvolution_analysis(sample, settings):
         peaks = find_peaks(sample.ms_times, tic_smoothed, height_threshold=0.3, prominence=0.1)
 
         if peaks:
-            # Get the highest peak
-            main_peak = max(peaks, key=lambda p: p['intensity'])
-            peak_time = main_peak['time']
-            peak_idx = main_peak['index']
+            # Find envelope of ALL significant peaks (>10% of max intensity)
+            # so multi-component samples get a wide enough time range.
+            max_peak_int = max(p['intensity'] for p in peaks)
+            sig_peaks = [p for p in peaks if p['intensity'] >= max_peak_int * 0.10]
+            if not sig_peaks:
+                sig_peaks = [max(peaks, key=lambda p: p['intensity'])]
 
-            # Estimate peak width (find where intensity drops to 30% of peak)
-            peak_int = main_peak['intensity']
-            threshold = peak_int * 0.3
+            # Use the outermost significant peaks to define boundaries
+            first_peak = min(sig_peaks, key=lambda p: p['time'])
+            last_peak = max(sig_peaks, key=lambda p: p['time'])
 
-            # Find left boundary
-            left_idx = peak_idx
-            while left_idx > 0 and tic_smoothed[left_idx] > threshold:
+            # Expand left from earliest peak to 30% of its height
+            threshold_left = first_peak['intensity'] * 0.3
+            left_idx = first_peak['index']
+            while left_idx > 0 and tic_smoothed[left_idx] > threshold_left:
                 left_idx -= 1
 
-            # Find right boundary
-            right_idx = peak_idx
-            while right_idx < len(tic_smoothed) - 1 and tic_smoothed[right_idx] > threshold:
+            # Expand right from latest peak to 30% of its height
+            threshold_right = last_peak['intensity'] * 0.3
+            right_idx = last_peak['index']
+            while right_idx < len(tic_smoothed) - 1 and tic_smoothed[right_idx] > threshold_right:
                 right_idx += 1
 
             auto_start = float(sample.ms_times[left_idx])
