@@ -1325,6 +1325,14 @@ def deconvolution_analysis(sample, settings):
         peaks = find_peaks(sample.ms_times, tic_smoothed, height_threshold=0.3, prominence=0.1)
 
         if peaks:
+            # For C4 methods, skip the early injection/void peak (~<1.8 min)
+            # which contains salts and buffer components, not protein.
+            is_c4 = getattr(sample, 'is_c4_method', False)
+            if is_c4:
+                protein_peaks = [p for p in peaks if p['time'] >= 1.8]
+                if protein_peaks:
+                    peaks = protein_peaks
+
             # Find envelope of ALL significant peaks (>10% of max intensity)
             # so multi-component samples get a wide enough time range.
             max_peak_int = max(p['intensity'] for p in peaks)
@@ -1784,6 +1792,7 @@ def deconvolution_analysis(sample, settings):
             st.session_state.deconv_last_run_sig = autorun_sig
 
     autorun_sig = (
+        config.APP_VERSION,
         sample.name,
         round(start_time, 4),
         round(end_time, 4),

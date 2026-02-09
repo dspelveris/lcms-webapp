@@ -728,6 +728,66 @@ def _reject_mass_outliers(masses: np.ndarray, intensities: np.ndarray,
     return masses[keep], intensities[keep]
 
 
+def _estimate_component_mass(
+    ions: list[dict],
+    broad_charge_threshold: int = 20,
+    core_rel_intensity: float = 0.35,
+) -> float:
+    """
+    Estimate component mass from assigned ions.
+
+    Default estimator is median (robust in crowded spectra). For broad charge
+    envelopes, use one representative ion per charge and compute an
+    intensity-weighted core average to reduce edge-charge contamination.
+    """
+    if not ions:
+        return float("nan")
+
+    masses = np.array([i['mass'] for i in ions], dtype=float)
+    intensities = np.array([i['intensity'] for i in ions], dtype=float)
+    charges = np.array([i['charge'] for i in ions], dtype=int)
+
+    masses_clean, intensities_clean = _reject_mass_outliers(masses, intensities)
+    if len(masses_clean) == 0 or len(intensities_clean) == 0:
+        return float(np.median(masses))
+
+    # Default robust estimator.
+    mass_median = float(np.median(masses_clean))
+
+    unique_charges = np.unique(charges)
+    if len(unique_charges) < broad_charge_threshold:
+        return mass_median
+
+    # Broad envelopes: use strongest ion per charge to avoid over-counting
+    # multiple assignments within the same charge, then keep core-intensity
+    # charges where overlap contamination is lower.
+    charge_to_best_idx = {}
+    for idx, (z, it) in enumerate(zip(charges, intensities)):
+        best_idx = charge_to_best_idx.get(z)
+        if best_idx is None or it > intensities[best_idx]:
+            charge_to_best_idx[z] = idx
+
+    per_charge_idx = np.array(list(charge_to_best_idx.values()), dtype=int)
+    pc_masses = masses[per_charge_idx]
+    pc_intensities = intensities[per_charge_idx]
+
+    # Re-apply outlier cleanup on the per-charge representative set.
+    pc_masses, pc_intensities = _reject_mass_outliers(pc_masses, pc_intensities)
+    if len(pc_masses) < 3:
+        return mass_median
+
+    if np.max(pc_intensities) > 0:
+        core_mask = pc_intensities >= core_rel_intensity * np.max(pc_intensities)
+        if np.sum(core_mask) >= 3:
+            pc_masses = pc_masses[core_mask]
+            pc_intensities = pc_intensities[core_mask]
+
+    if np.sum(pc_intensities) <= 0:
+        return mass_median
+
+    return float(np.sum(pc_masses * pc_intensities) / np.sum(pc_intensities))
+
+
 def deconvolute_protein_agilent_like(
     mz: np.ndarray,
     intensity: np.ndarray,
@@ -883,39 +943,10 @@ def deconvolute_protein_agilent_like(
             if len(strong) < min_peaks:
                 strong = ions
 
-            # Calculate mass using FIXED proton mass and intensity-weighted average
-            # with outlier rejection to remove ions that matched wrong peaks.
+            # Robust mass estimate with broad-envelope refinement.
             intensities_arr = np.array([i['intensity'] for i in ions])
             masses_arr = np.array([i['mass'] for i in ions])
-
-            # Reject outlier ions (wrong peak matches amplified by high z)
-            masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
-
-            # Median mass — more robust than weighted average when neighbouring
-            # species contaminate individual ions (see test_mass_methods.py).
-            M_fit = float(np.median(masses_clean))
-
-            # Alternative: also try regression and compare
-            # If regression gives a proton mass close to expected, use its result
-            try:
-                if len(ions) >= 3 and intensities_arr.max() > 0:
-                    z_inv = np.array([1.0 / i['charge'] for i in ions])
-                    mz_vals = np.array([i['mz'] for i in ions])
-                    A = np.vstack([z_inv, np.ones_like(z_inv)]).T
-                    W = np.diag(intensities_arr / intensities_arr.max())
-                    # Check for valid weights before lstsq
-                    if np.all(np.isfinite(W)) and np.all(np.isfinite(A)):
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            coeffs = np.linalg.lstsq(W @ A, W @ mz_vals, rcond=None)[0]
-                        M_regr = float(coeffs[0])
-                        H_regr = float(coeffs[1])
-                        # Only use regression result if proton mass is reasonable (within 0.1 Da)
-                        if np.isfinite(M_regr) and np.isfinite(H_regr):
-                            if abs(H_regr - PROTON_MASS) < 0.1:
-                                M_fit = M_regr
-            except Exception:
-                pass  # Keep the weighted average result
+            M_fit = _estimate_component_mass(ions)
 
             # R² is stored for informational purposes only — do NOT override
             # the intensity-weighted / regression mass with median when R² is low.
@@ -988,8 +1019,7 @@ def deconvolute_protein_agilent_like(
                 if len(ions) >= min_peaks:
                     intensities_arr = np.array([i['intensity'] for i in ions])
                     masses_arr = np.array([i['mass'] for i in ions])
-                    masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
-                    calc_mass = float(np.median(masses_clean))
+                    calc_mass = _estimate_component_mass(ions)
 
                     result = {
                         'mass': calc_mass,
@@ -1074,8 +1104,7 @@ def deconvolute_protein_agilent_like(
 
                 intensities_arr = np.array([i['intensity'] for i in ions])
                 masses_arr = np.array([i['mass'] for i in ions])
-                masses_clean, intensities_clean = _reject_mass_outliers(masses_arr, intensities_arr)
-                M_fit = float(np.median(masses_clean))
+                M_fit = _estimate_component_mass(ions)
                 r2 = _gaussian_fit_r2(ion_charges, [i['intensity'] for i in ions])
 
                 residual_candidates.append({
